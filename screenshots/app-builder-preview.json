@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "电动木质滚珠机",
+      "hasCanvas": true,
+      "bodyTextLen": 55,
+      "bodyTextHash": "477a06012dceba549fbdcc63a370138a68f44a7ad8c461e549961d2c4b753a42",
+      "bodyTextPrefix": "电动木质滚珠机 运行中 · 8 颗钢珠 暂停 0.5× 1× 2× 4 颗 8 颗 12 颗 全景 俯视 齿轮",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "电动木质滚珠机",
+      "hasCanvas": true,
+      "bodyTextLen": 43,
+      "bodyTextHash": "3c2dfa2e858dddd45bc04d21840840da56f0261d34a7ef1c0e4f4458f6307ae2",
+      "bodyTextPrefix": "电动木质滚珠机 暂停 0.5× 1× 2× 4 颗 8 颗 12 颗 全景 俯视 齿轮",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

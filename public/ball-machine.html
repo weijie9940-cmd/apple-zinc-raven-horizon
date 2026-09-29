@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>电动木质滚珠机</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,650;7..72,760&family=Outfit:wght@440;560&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/machine.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three/three.module.js",
+      "three/addons/": "/vendor/three/addons/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="view"></div>
+  <header class="title">
+    <h1>电动木质滚珠机</h1>
+    <p id="status">正在装配机构…</p>
+  </header>
+  <div id="hud">
+    <div class="bar" role="toolbar" aria-label="仿真控制">
+      <div class="group">
+        <button id="btn-play" type="button" aria-pressed="true">暂停</button>
+      </div>
+      <div class="sep"></div>
+      <div class="group" role="group" aria-label="速度">
+        <button type="button" data-speed="0.5">0.5×</button>
+        <button type="button" data-speed="1" aria-pressed="true">1×</button>
+        <button type="button" data-speed="2">2×</button>
+      </div>
+      <div class="sep"></div>
+      <div class="group" role="group" aria-label="钢珠数量">
+        <button type="button" data-count="4">4 颗</button>
+        <button type="button" data-count="8" aria-pressed="true">8 颗</button>
+        <button type="button" data-count="12">12 颗</button>
+      </div>
+      <div class="sep"></div>
+      <div class="group" role="group" aria-label="视角">
+        <button type="button" data-view="wide" aria-pressed="true">全景</button>
+        <button type="button" data-view="top">俯视</button>
+        <button type="button" data-view="gears">齿轮</button>
+      </div>
+    </div>
+  </div>
+  <div id="loading">
+    <div class="card">
+      <h2>电动木质滚珠机</h2>
+      <p>正在装配齿轮、链条与轨道…</p>
+    </div>
+  </div>
+  <div id="error" role="alert">
+    <div class="card">
+      <h2>三维场景加载失败</h2>
+      <p id="error-text">无法加载 Three.js 组件库。请检查网络连接后刷新页面。</p>
+    </div>
+  </div>
+  <noscript>
+    <div id="error" class="show">
+      <div class="card">
+        <h2>需要启用 JavaScript</h2>
+        <p>这台滚珠机由浏览器脚本驱动。请启用 JavaScript 后刷新页面。</p>
+      </div>
+    </div>
+  </noscript>
+  <script type="module" src="/machine.js"></script>
+</body>
+</html>

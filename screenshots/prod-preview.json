@@ -1,0 +1,43 @@
+{
+  "url": "http://127.0.0.1:8081",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "电动木质滚珠机",
+      "hasCanvas": false,
+      "bodyTextLen": 73,
+      "bodyTextHash": "1ec12ff49f0b731eb4809cf957e885f4d7cceb6c0f5b12b1908a2fe008c338ff",
+      "bodyTextPrefix": "电动木质滚珠机 正在装配机构… 暂停 0.5× 1× 2× 4 颗 8 颗 12 颗 全景 俯视 齿轮 电动木质滚珠机 正在装配",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/prod-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "电动木质滚珠机",
+      "hasCanvas": false,
+      "bodyTextLen": 65,
+      "bodyTextHash": "e8c3e168d39b11bad97d99dfe27000da1bf7e723605bcff43fae8ba00aa69b87",
+      "bodyTextPrefix": "电动木质滚珠机 暂停 0.5× 1× 2× 4 颗 8 颗 12 颗 全景 俯视 齿轮 电动木质滚珠机 正在装配齿轮、链条与轨道",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/prod-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/prod-preview.json",
+  "divergesFromBaseline": true,
+  "baselineReasons": [
+    "desktop: canvas disappeared",
+    "desktop: body text replaced (similar length, page start changed)",
+    "mobile: canvas disappeared",
+    "mobile: body text changed (43 -> 65 chars, hash mismatch)"
+  ]
+}
