@@ -3,3 +3,6 @@ node_modules/
 .github_repo
 .env
 .env.*
+
+# Prebuilt Vercel output is regenerated on deploy; never commit it
+.vercel/output/
