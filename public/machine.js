@@ -877,25 +877,48 @@ const bootTimer = setTimeout(() => {
       const funnelIn = ballCenter(funnelTrack, 0);
       const ringFloor = funnelTrack.pts[0];
       const ringT = norm(forwardTangent(funnelTrack, 0));
+      const ringTH = norm(v3(ringT.x, 0, ringT.z));
       const POUR_U = 0.62;
       const pourS = straight + POUR_U * arcLen;
       const pourSeat = seatOf(chainFrame(pourS));
       const guideLen = 0.8 * R;
-      const exit = add(funnelIn, scale(ringT, -guideLen));
+      const touch = v3(funnelIn.x, funnelIn.y, funnelIn.z);
+      const exit = add(touch, scale(ringTH, -guideLen));
+      exit.y = ringFloor.y + R;
       let tIn = norm(sub(exit, pourSeat));
-      if (!(tIn.y < -1e-3)) tIn = norm(v3(tIn.x, -0.08, tIn.z));
-      const leg = descendingBezier(pourSeat, tIn, exit, ringT);
+      if (!(tIn.y < -1e-3)) tIn = norm(v3(tIn.x, -0.1, tIn.z));
+      const leg = descendingBezier(pourSeat, tIn, exit, ringTH);
+      leg[0] = pourSeat;
+      leg[leg.length - 1] = exit;
       const guidePts = [];
-      for (let i = 0; i <= 32; i++) guidePts.push(lerp(exit, funnelIn, i / 32));
-      const pour = buildTrackFromPts(concatPoly([leg, guidePts]));
+      for (let i = 0; i <= 24; i++) guidePts.push(lerp(exit, touch, i / 24));
+      const pour = buildTrackFromPts(concatPoly([dropY(leg), guidePts]));
       pour.centerline = true;
       pour.name = "pour";
       pour.next = 0;
       pour.pts[0] = pourSeat;
-      pour.pts[N - 1] = funnelIn;
+      pour.pts[N - 1] = touch;
       transportFrame(pour);
-      const pourSlope = assertDown(pour);
-      const pourJoin = tangentAngle(pour.tangent[N - 1], ringT);
+      const mouthSide = norm(v3(-ringTH.z, 0, ringTH.x));
+      const mouthUp = v3(0, 1, 0);
+      const sideSign = dot(mouthSide, funnelTrack.side[0]) < 0 ? -1 : 1;
+      const lockedSide = scale(mouthSide, sideSign);
+      for (let i = 0; i < N; i++) {
+        const back = pour.total - pour.sTab[i];
+        if (back > guideLen) continue;
+        pour.tangent[i] = ringTH;
+        pour.up[i] = mouthUp;
+        pour.side[i] = lockedSide;
+      }
+      let pourSlope = -Infinity;
+      let guideSlope = -Infinity;
+      for (let i = 0; i < N; i++) {
+        if (pour.total - pour.sTab[i] <= guideLen + 1e-4) guideSlope = Math.max(guideSlope, pour.dyds[i]);
+        else pourSlope = Math.max(pourSlope, pour.dyds[i]);
+      }
+      if (!(pourSlope < -1e-4)) throw new Error("出料滑槽坡度不为负 max=" + pourSlope);
+      if (!(guideSlope < 1e-4)) throw new Error("切向引导段上坡 max=" + guideSlope);
+      const pourJoin = tangentAngle(pour.tangent[N - 1], ringTH);
       const exitHeight = Math.abs(exit.y - (ringFloor.y + R));
       const floorJoin = Math.abs((pour.pts[N - 1].y - pour.up[N - 1].y * R) - ringFloor.y);
       tracks.push(pour);
@@ -942,6 +965,21 @@ const bootTimer = setTimeout(() => {
         }
       }
       if (!(ringClear > R + 1.1 * R)) throw new Error("外环与滑槽相撞 " + ringClear.toFixed(3));
+      let lapClear = Infinity;
+      {
+        const iTurn = Math.max(2, Math.round((N - 1) * ((2 * Math.PI) / FUNNEL_TURN)));
+        const mouth = Math.max(0.55, guideLen * 3);
+        for (let i = 0; i <= iTurn; i += 2) {
+          if (funnelTrack.sTab[i] < mouth) continue;
+          const p = ballCenter(funnelTrack, funnelTrack.sTab[i]);
+          for (let k = 0; k < N; k += 2) {
+            if (pour.total - pour.sTab[k] <= mouth) continue;
+            const d = len(sub(p, pour.pts[k]));
+            if (d < lapClear) lapClear = d;
+          }
+        }
+      }
+      if (!(lapClear > R + 1.1 * R)) throw new Error("外环一整圈与滑槽相撞 " + lapClear.toFixed(3));
       if (!(exitHeight < 0.05 * R)) throw new Error("滑槽出口高度差 " + exitHeight.toFixed(4));
       if (!(floorJoin < 0.05 * R)) throw new Error("滑槽与环槽底面高度差 " + floorJoin.toFixed(4));
       if (!(pourJoin < 5)) throw new Error("滑槽出口与外环切向夹角 " + pourJoin.toFixed(2));
@@ -960,6 +998,12 @@ const bootTimer = setTimeout(() => {
         radialDev.toFixed(4),
         "限",
         (0.15 * R).toFixed(4),
+        "出口高差",
+        exitHeight.toFixed(5),
+        "底面高差",
+        floorJoin.toFixed(5),
+        "外环净空",
+        lapClear.toFixed(4),
       );
       console.log(
         "倒角 " +
@@ -1227,7 +1271,7 @@ const bootTimer = setTimeout(() => {
         return new THREE.TubeGeometry(curve, 280, radius, 7, false);
       }
 
-      function addWoodU(track) {
+      function addWoodU(track, opts) {
         const pts = [];
         const sides = [];
         const ups = [];
@@ -1271,28 +1315,33 @@ const bootTimer = setTimeout(() => {
           wallR.push(outer > 0 ? raised : lo);
         }
         if (!(seat < 1e-4)) throw new Error(track.name + " 球没有贴在槽底上：" + seat);
-        const sweep = addUChannel(pts, sides, ups, null, null, null, wallL, wallR);
+        const sweep = addUChannel(pts, sides, ups, null, null, null, wallL, wallR, track.name === "pour" ? { ...opts, clipToRing: true } : opts);
         return { seat, sweep };
       }
 
-      const woodU = [tracks[2], tracks[3], tracks[4], tracks[pourIndex]].map(addWoodU);
+      const woodU = [tracks[2], tracks[3], tracks[4]].map((tr) => addWoodU(tr));
+      woodU.push(addWoodU(tracks[pourIndex], { endOverlap: false }));
 
-      function addUChannel(pts, sides, ups, halfAt, wallAt, dropAt, wallLeft, wallRight) {
+      function addUChannel(pts, sides, ups, halfAt, wallAt, dropAt, wallLeft, wallRight, flags) {
         const overlap = 0.1 * R;
         const srcStart = pts[0];
         const srcEnd = pts[pts.length - 1];
-        if (pts.length >= 2) {
+        const startOverlap = !flags || flags.startOverlap !== false;
+        const endOverlap = !flags || flags.endOverlap !== false;
+        if (pts.length >= 2 && (startOverlap || endOverlap)) {
           const t0 = norm(sub(pts[0], pts[1]));
           const t1 = norm(sub(pts[pts.length - 1], pts[pts.length - 2]));
-          const grow = (arr) => (arr ? [arr[0], ...arr, arr[arr.length - 1]] : arr);
-          pts = [add(pts[0], scale(t0, overlap)), ...pts, add(pts[pts.length - 1], scale(t1, overlap))];
-          sides = [sides[0], ...sides, sides[sides.length - 1]];
-          ups = [ups[0], ...ups, ups[ups.length - 1]];
-          halfAt = grow(halfAt);
-          wallAt = grow(wallAt);
-          dropAt = grow(dropAt);
-          wallLeft = grow(wallLeft);
-          wallRight = grow(wallRight);
+          const grow = (arr, head, tail) => (arr ? [...(head ? [arr[0]] : []), ...arr, ...(tail ? [arr[arr.length - 1]] : [])] : arr);
+          const head = startOverlap ? [add(pts[0], scale(t0, overlap))] : [];
+          const tail = endOverlap ? [add(pts[pts.length - 1], scale(t1, overlap))] : [];
+          pts = [...head, ...pts, ...tail];
+          sides = [...(startOverlap ? [sides[0]] : []), ...sides, ...(endOverlap ? [sides[sides.length - 1]] : [])];
+          ups = [...(startOverlap ? [ups[0]] : []), ...ups, ...(endOverlap ? [ups[ups.length - 1]] : [])];
+          halfAt = grow(halfAt, startOverlap, endOverlap);
+          wallAt = grow(wallAt, startOverlap, endOverlap);
+          dropAt = grow(dropAt, startOverlap, endOverlap);
+          wallLeft = grow(wallLeft, startOverlap, endOverlap);
+          wallRight = grow(wallRight, startOverlap, endOverlap);
         }
         const half0 = 1.1 * R;
         const wallT = 0.15 * R;
@@ -1319,8 +1368,23 @@ const bootTimer = setTimeout(() => {
           const sd = sides[i];
           const half = halfAt ? halfAt[i] : half0;
           const wallH = wallAt ? wallAt[i] : wallH0;
-          const L = add(p, scale(sd, -half));
-          const Rgt = add(p, scale(sd, half));
+          let L = add(p, scale(sd, -half));
+          let Rgt = add(p, scale(sd, half));
+          if (flags && flags.clipToRing) {
+            const minR = FUNNEL_R0 - 0.02;
+            const clampRim = (q) => {
+              const dx = q.x - funnelC.x;
+              const dz = q.z - funnelC.z;
+              const rad = Math.hypot(dx, dz) || 1;
+              if (rad >= minR) return q;
+              const s = minR / rad;
+              return v3(funnelC.x + dx * s, q.y, funnelC.z + dz * s);
+            };
+            const rL = Math.hypot(L.x - funnelC.x, L.z - funnelC.z);
+            const rR = Math.hypot(Rgt.x - funnelC.x, Rgt.z - funnelC.z);
+            if (rL <= rR) L = clampRim(L);
+            else Rgt = clampRim(Rgt);
+          }
           left.push(L);
           right.push(Rgt);
           leftBot.push(add(L, scale(up, -floorT)));
@@ -1368,6 +1432,39 @@ const bootTimer = setTimeout(() => {
         return { start: srcStart, end: srcEnd };
       }
 
+      function carrySweep(tangents, ups, sides) {
+        const last = ups.length - 1;
+        if (last < 1) return;
+        let up = ups[last];
+        let side = sides[last];
+        if (up.y < 0) {
+          up = scale(up, -1);
+          side = scale(side, -1);
+        }
+        side = norm(cross(tangents[last], up));
+        up = norm(cross(side, tangents[last]));
+        if (up.y < 0) {
+          side = scale(side, -1);
+          up = scale(up, -1);
+        }
+        ups[last] = up;
+        sides[last] = side;
+        for (let i = last - 1; i >= 0; i--) {
+          const t = tangents[i];
+          let carried = sub(ups[i + 1], scale(t, dot(ups[i + 1], t)));
+          if (len(carried) < 1e-5) carried = ups[i + 1];
+          carried = norm(carried);
+          let sd = norm(cross(t, carried));
+          if (dot(sd, sides[i + 1]) < 0) {
+            sd = scale(sd, -1);
+            carried = scale(carried, -1);
+          }
+          carried = norm(cross(sd, t));
+          ups[i] = carried;
+          sides[i] = sd;
+        }
+      }
+
       function addTrackU(track, s0, s1, dense) {
         const span = Math.max(1e-4, s1 - s0);
         const base = Math.max(8, Math.ceil(span / (track.total / (N - 1))));
@@ -1375,12 +1472,15 @@ const bootTimer = setTimeout(() => {
         const pts = [];
         const sides = [];
         const ups = [];
+        const tangents = [];
         for (let i = 0; i <= steps; i++) {
           const smp = sample(track, s0 + span * (i / steps));
           pts.push(track.centerline ? sub(smp.pos, scale(smp.up, R)) : smp.pos);
           sides.push(smp.side);
           ups.push(smp.up);
+          tangents.push(smp.tangent);
         }
+        carrySweep(tangents, ups, sides);
         addUChannel(pts, sides, ups);
       }
       function addTrackUAdaptive(track, sStart) {
@@ -1608,7 +1708,7 @@ const bootTimer = setTimeout(() => {
         return { start: track.pts[0], end: track.pts[i1] };
       }
 
-      addTrackU(tracks[0], Math.max(0, guideLen - 0.1 * R), tracks[0].total, false);
+      addTrackU(tracks[0], 0, tracks[0].total, false);
       const inletSweep = addSameSpineU(inletTrack, 0, N - 1, {
         drop: R,
         liftSteep: true,
@@ -1788,7 +1888,13 @@ const bootTimer = setTimeout(() => {
             r = Math.max(0.42, lo);
           }
           const da = Math.atan2(Math.sin(a - entryA), Math.cos(a - entryA));
-          if (Math.abs(da) < 0.46) r = Math.min(r, FUNNEL_R0 - 1.1 * R - 0.04);
+          const slotHalf = Math.atan2(1.35 * R, Math.max(0.4, FUNNEL_R0));
+          if (Math.abs(da) < slotHalf) {
+            const u = Math.abs(da) / slotHalf;
+            const edge = 0.5 + 0.5 * Math.cos(Math.PI * u);
+            const slotR = FUNNEL_R0 - 0.06 * R;
+            r = Math.min(r, slotR * edge + r * (1 - edge));
+          }
           return r;
         }
         const trayShape = new THREE.Shape();
@@ -2126,36 +2232,40 @@ const bootTimer = setTimeout(() => {
       scene.add(pillarSeam);
 
       const halfLinks = N_LINKS / 2;
-      const outerPlateGeo = new THREE.BoxGeometry(0.02, pitch * 1.08, 0.02);
-      const innerPlateGeo = new THREE.BoxGeometry(0.016, pitch * 0.96, 0.016);
-      const pinGeoChain = new THREE.CylinderGeometry(0.011, 0.011, 0.04, 8);
+      const PLATE_LAT = 0.358;
+      const outerPlateGeo = new THREE.BoxGeometry(0.016, pitch * 1.46, 0.05);
+      const innerPlateGeo = new THREE.BoxGeometry(0.012, pitch * 1.32, 0.044);
+      const pinGeoChain = new THREE.CylinderGeometry(0.013, 0.013, 0.05, 8);
+      const rollerGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.036, 8);
       const outerLinks = new THREE.InstancedMesh(outerPlateGeo, chainMat, N_LINKS);
       const innerLinks = new THREE.InstancedMesh(innerPlateGeo, chainMat, N_LINKS);
       const chainPins = new THREE.InstancedMesh(pinGeoChain, darkMetal, N_LINKS * 2);
+      const chainRollers = new THREE.InstancedMesh(rollerGeo, darkMetal, N_LINKS * 2);
       outerLinks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       innerLinks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       chainPins.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      scene.add(outerLinks, innerLinks, chainPins);
+      chainRollers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      scene.add(outerLinks, innerLinks, chainPins, chainRollers);
       const dummy = new THREE.Object3D();
       const basis = new THREE.Matrix4();
 
       const buckets = [];
       for (let i = 0; i < 6; i++) {
         const group = new THREE.Group();
-        const floorM = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.02, 0.3), wood);
-        floorM.position.set(0, -0.04, 0.12);
-        floorM.rotation.x = 0.42;
-        const back = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.024), woodDark);
-        back.position.set(0, 0.03, -0.02);
-        const sideGeo = new THREE.BoxGeometry(0.022, 0.14, 0.28);
+        const floorM = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.016, 0.3), wood);
+        floorM.position.set(0, -0.05, 0.12);
+        floorM.rotation.x = 0.62;
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.02), woodDark);
+        back.position.set(0, 0.06, -0.02);
+        const sideGeo = new THREE.BoxGeometry(0.02, 0.16, 0.28);
         const left = new THREE.Mesh(sideGeo, wood);
-        left.position.set(-0.18, -0.01, 0.1);
-        left.rotation.x = 0.22;
+        left.position.set(-0.16, 0.0, 0.1);
+        left.rotation.x = 0.32;
         const right = new THREE.Mesh(sideGeo, wood);
-        right.position.set(0.18, -0.01, 0.1);
-        right.rotation.x = 0.22;
-        const lip = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.02, 0.02), wood);
-        lip.position.set(0, -0.09, 0.27);
+        right.position.set(0.16, 0.0, 0.1);
+        right.rotation.x = 0.32;
+        const lip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.016, 0.018), wood);
+        lip.position.set(0, -0.12, 0.26);
         group.add(floorM, back, left, right, lip);
         scene.add(group);
         buckets.push({ i, group, ball: null });
@@ -2223,17 +2333,21 @@ const bootTimer = setTimeout(() => {
       }
 
       {
-        const flankZ = 0.42;
+        const flankZ = 0.46;
         const y0g = yBot + RS + 0.12;
         const y1g = yTop - RS - 0.12;
         const gh = y1g - y0g;
         for (const x of [xS - RS, xS + RS]) {
           for (const z of [zC - flankZ, zC + flankZ]) {
-            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.05, gh, 0.016), wood);
+            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.06, gh, 0.02), wood);
             plate.position.set(x, (y0g + y1g) / 2, z);
             plate.castShadow = true;
             plate.receiveShadow = true;
             scene.add(plate);
+            const lip = new THREE.Mesh(new THREE.BoxGeometry(0.02, gh, 0.02), woodDark);
+            const inward = z > zC ? -1 : 1;
+            lip.position.set(x, (y0g + y1g) / 2, z + inward * 0.012);
+            scene.add(lip);
           }
         }
       }
@@ -2637,7 +2751,7 @@ const bootTimer = setTimeout(() => {
           const mid = chainFrame((i + 0.5) * pitch + chainTravel);
           const outer = i % 2 === 0;
           const mesh = outer ? outerLinks : innerLinks;
-          const lateral = outer ? 0.372 : 0.352;
+          const lateral = outer ? PLATE_LAT + 0.008 : PLATE_LAT - 0.006;
           let cursor = outer ? oi : ii;
           for (const shift of [-lateral, lateral]) {
             orientObject(dummy, mid.pos, mid.tangent, mid.outward);
@@ -2647,8 +2761,15 @@ const bootTimer = setTimeout(() => {
           }
           if (outer) oi = cursor;
           else ii = cursor;
+          for (const shift of [-PLATE_LAT, PLATE_LAT]) {
+            orientObject(dummy, mid.pos, mid.tangent, mid.outward);
+            dummy.translateX(shift);
+            dummy.rotateZ(Math.PI / 2);
+            dummy.updateMatrix();
+            chainRollers.setMatrixAt(i * 2 + (shift < 0 ? 0 : 1), dummy.matrix);
+          }
           const pinF = chainFrame(i * pitch + chainTravel);
-          for (const shift of [-0.362, 0.362]) {
+          for (const shift of [-PLATE_LAT, PLATE_LAT]) {
             orientObject(dummy, pinF.pos, pinF.tangent, pinF.outward);
             dummy.translateX(shift);
             dummy.rotateZ(Math.PI / 2);
@@ -2659,6 +2780,7 @@ const bootTimer = setTimeout(() => {
         outerLinks.instanceMatrix.needsUpdate = true;
         innerLinks.instanceMatrix.needsUpdate = true;
         chainPins.instanceMatrix.needsUpdate = true;
+        chainRollers.instanceMatrix.needsUpdate = true;
         for (const bucket of buckets) {
           const frame = chainFrame(bucketS(bucket.i));
           orientObject(bucket.group, frame.pos, frame.tangent, frame.outward);
@@ -3112,6 +3234,15 @@ const bootTimer = setTimeout(() => {
             }
             outer = Math.max(0.42, lo);
           }
+          const entryA = Math.atan2(-(funnelTrack.pts[0].z - funnelC.z), funnelTrack.pts[0].x - funnelC.x);
+          const da = Math.atan2(Math.sin(ang - entryA), Math.cos(ang - entryA));
+          const slotHalf = Math.atan2(1.35 * R, Math.max(0.4, FUNNEL_R0));
+          if (Math.abs(da) < slotHalf) {
+            const u = Math.abs(da) / slotHalf;
+            const edge = 0.5 + 0.5 * Math.cos(Math.PI * u);
+            const slotR = FUNNEL_R0 - 0.06 * R;
+            outer = Math.min(outer, slotR * edge + outer * (1 - edge));
+          }
           const dy = Math.abs(p.y - cy) - 0.04;
           const horiz = rad < 0.35 ? 0.35 - rad : rad > outer ? rad - outer : 0;
           if (horiz === 0) return dy;
@@ -3246,18 +3377,21 @@ const bootTimer = setTimeout(() => {
           for (let i = 0; i < N_LINKS; i++) {
             const mid = chainFrame((i + 0.5) * pitch + travel);
             const outer = i % 2 === 0;
-            const lateral = outer ? 0.372 : 0.352;
-            const hx = outer ? 0.01 : 0.008;
-            const hy = (outer ? pitch * 1.08 : pitch * 0.96) / 2;
-            const hz = outer ? 0.01 : 0.008;
+            const lateral = outer ? PLATE_LAT + 0.008 : PLATE_LAT - 0.006;
+            const hx = outer ? 0.008 : 0.006;
+            const hy = (outer ? pitch * 1.46 : pitch * 1.32) / 2;
+            const hz = outer ? 0.025 : 0.022;
             const ax = axesOf(mid.tangent, mid.outward);
             for (const shift of [-lateral, lateral]) {
               out.push({ c: add(mid.pos, scale(ax.x, shift)), ax: ax.x, ay: ax.y, az: ax.z, hx, hy, hz });
             }
+            for (const shift of [-PLATE_LAT, PLATE_LAT]) {
+              out.push({ c: add(mid.pos, scale(ax.x, shift)), ax: ax.x, ay: ax.y, az: ax.z, hx: 0.018, hy: 0.02, hz: 0.02 });
+            }
             const pinF = chainFrame(i * pitch + travel);
             const px = axesOf(pinF.tangent, pinF.outward);
-            for (const shift of [-0.362, 0.362]) {
-              out.push({ c: add(pinF.pos, scale(px.x, shift)), ax: px.x, ay: px.y, az: px.z, hx: 0.02, hy: 0.011, hz: 0.011 });
+            for (const shift of [-PLATE_LAT, PLATE_LAT]) {
+              out.push({ c: add(pinF.pos, scale(px.x, shift)), ax: px.x, ay: px.y, az: px.z, hx: 0.016, hy: 0.012, hz: 0.012 });
             }
           }
           return out;
@@ -3266,8 +3400,8 @@ const bootTimer = setTimeout(() => {
         const y1g = yTop - RS - 0.12;
         const guides = [];
         for (const x of [xS - RS, xS + RS]) {
-          for (const z of [-0.42, 0.42]) {
-            guides.push({ c: v3(x, (y0g + y1g) / 2, z), hx: 0.025, hy: (y1g - y0g) / 2, hz: 0.008 });
+          for (const z of [-0.46, 0.46]) {
+            guides.push({ c: v3(x, (y0g + y1g) / 2, z), hx: 0.03, hy: (y1g - y0g) / 2, hz: 0.016 });
           }
         }
         function aabbDist(p, b) {
