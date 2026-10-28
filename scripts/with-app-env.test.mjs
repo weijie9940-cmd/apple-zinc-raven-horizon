@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import {
@@ -83,6 +83,24 @@ test("the wrapped command runs with the app env applied", async () => {
   assert.equal(stdout, "false");
 });
 
+test("an executable under a spaced path receives literal arguments unchanged", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "app env executable-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const runtime = join(root, "runtime with spaces");
+  symlinkSync(dirname(process.execPath), runtime, process.platform === "win32" ? "junction" : "dir");
+  const values = ["space value", 'a "quoted" value', "", "中文参数"];
+  const { stdout, stderr } = await execFileAsync(process.execPath, [
+    WRAPPER,
+    join(runtime, basename(process.execPath)),
+    "-e",
+    "process.stdout.write(JSON.stringify(process.argv.slice(1)))",
+    "--",
+    ...values,
+  ]);
+  assert.deepEqual(JSON.parse(stdout), values);
+  assert.equal(stderr, "");
+});
+
 test("the wrapped command sees an explicit override, not the file value", async () => {
   const { stdout } = await execFileAsync(
     process.execPath,
@@ -117,7 +135,7 @@ test("the CLI still runs when invoked through a symlinked path", async () => {
   // node realpaths import.meta.url but not process.argv[1], so a raw comparison
   // turns the wrapper into a no-op that exits 0 without starting anything.
   const link = join(mkdtempSync(join(tmpdir(), "app-env-link-")), "scripts");
-  symlinkSync(join(projectRoot(), "scripts"), link);
+  symlinkSync(join(projectRoot(), "scripts"), link, process.platform === "win32" ? "junction" : "dir");
   const { stdout } = await execFileAsync(process.execPath, [
     join(link, "with-app-env.mjs"),
     process.execPath,

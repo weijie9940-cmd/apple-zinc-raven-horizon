@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   appNameFromHost,
-  createHeadInjector,
+  createHeadInjector as createHeadInjectorRaw,
   grokXCreatorHeadTags,
-  injectGrokPwaHead,
+  injectGrokPwaHead as injectGrokPwaHeadRaw,
   isDocumentPath,
   isInstallQuery,
   publicAppHost,
@@ -20,6 +20,15 @@ import {
 import { renderInstallPage } from "./grok-pwa-plugin.mjs";
 
 const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+// Branding unit tests must not read this app's real site.json or share card.
+const ISOLATED_ROOT = mkdtempSync(join(tmpdir(), "pwa-test-root-"));
+function injectGrokPwaHead(html, context = {}) {
+  return injectGrokPwaHeadRaw(html, { cwd: ISOLATED_ROOT, ...context });
+}
+function createHeadInjector(context = {}) {
+  return createHeadInjectorRaw({ cwd: ISOLATED_ROOT, ...context });
+}
+
 
 test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");

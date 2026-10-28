@@ -9,9 +9,9 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: APP_NAME },
-      { name: "theme-color", content: "#d9b98a" },
+      { name: "theme-color", content: "#f5f2eb" },
       { name: "description", content: "电机驱动的木质滚珠机：齿轮啮合、链条提升、螺旋与波浪轨道无限循环。" },
     ],
     links: [

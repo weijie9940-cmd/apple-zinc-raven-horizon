@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 .project_id
 .github_repo
 .env
@@ -6,3 +6,10 @@ node_modules/
 
 # Prebuilt Vercel output is regenerated on deploy; never commit it
 .vercel/output/
+
+# Local agent / acceptance artifacts
+.grok/
+screenshots/
+work/
+{}
+dev.log
