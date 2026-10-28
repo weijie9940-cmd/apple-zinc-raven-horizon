@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#d9b98a"/>
-  <circle cx="16" cy="18" r="6.5" fill="none" stroke="#3a2a1c" stroke-width="2"/>
-  <circle cx="22" cy="11" r="3.2" fill="#f5b301" stroke="#3a2a1c" stroke-width="1.4"/>
-  <circle cx="16" cy="18" r="2" fill="#c5c8ce" stroke="#3a2a1c" stroke-width="1"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Marble Atelier">
+  <rect width="64" height="64" rx="16" fill="#f5f2eb"/>
+  <path d="M15 44V35c0-11 8-19 19-19h12M15 44h34" fill="none" stroke="#283d48" stroke-width="6" stroke-linecap="round"/>
+  <path d="M24 44V32c0-4 3-7 7-7h15" fill="none" stroke="#a5cbbb" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="45" cy="17" r="8" fill="#e6a7b7" stroke="#283d48" stroke-width="3"/>
+  <circle cx="43" cy="14" r="2" fill="#f5f2eb"/>
 </svg>

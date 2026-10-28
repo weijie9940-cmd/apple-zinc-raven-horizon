@@ -1,3 +1,24 @@
+import {createBucketEscapement} from './machine-bucket-station.js';
+import {createRenderBatches} from './machine-render-batches.js';
+import {createShadowCadence} from './machine-shadow-cadence.js';
+import {createMotionGovernor,tippingFactor} from './machine-motion.js';
+import {mechanicalCues} from './machine-sound.js';
+import {createBucketCycle,loadingProgress} from './machine-bucket-state.js';
+import {createMergeRetarderView} from './machine-retarder.js';
+import {createDriveDetail} from './machine-drive.js';
+import {createDriveTour} from './machine-drive-state.js';
+import {createLiftCarrier} from './machine-lift-carrier.js';
+import {createSwitchDrive,createMergeRetarder,trackTravel} from './machine-mechanisms.js';
+import { mergeFlow } from './machine-traffic.js';
+import { junctionFootprint } from './machine-junction.js';
+import { createChimes } from './machine-music.js';
+import { createPianoBridge } from './machine-piano.js';
+import { createPerformance } from './machine-performance.js';
+import { createCurtainMechanism } from './machine-curtain.js';
+import { arrivalManifest, performanceShot } from './machine-director.js';
+import { createRouteSelector, responseCurve } from './machine-routing.js';
+import { createTrackSwitch } from './machine-switch.js';
+
 if (!window.__orbitLock) {
   window.__orbitLock = true;
   const swallow = (event) => {
@@ -71,7 +92,7 @@ const bootTimer = setTimeout(() => {
         scurve: 1.15,
         ramp2: 0.2,
         tray: 0.18,
-        pour: 1.67,
+        pour: 0.25,
       };
       function muFor(name) {
         return MU_OF[name] || 0.2;
@@ -86,7 +107,7 @@ const bootTimer = setTimeout(() => {
       const TIP_K = 0.14;
       const ROOT_K = 0.26;
       const OMEGA1 = (2 * Math.PI / 8) * (Z3 / Z1);
-      const CHAIN_RISE = 3.2;
+      const CHAIN_RISE = 5.00;
       const ZS = 14;
       const N_LINKS = 48;
       const RS = CHAIN_RISE / (Math.PI * (N_LINKS / ZS - 1));
@@ -99,8 +120,8 @@ const bootTimer = setTimeout(() => {
       const S_WAVE = 2.0;
       const S_ALONG = S_WAVE * 2;
 
-      const xS = -1.82;
-      const yBot = 1.18;
+      const xS = -2.87;
+      const yBot = 1.28;
       const zC = 0;
       const yTop = yBot + CHAIN_RISE;
       const zGear = -0.78;
@@ -155,19 +176,23 @@ const bootTimer = setTimeout(() => {
       const pitch = (2 * Math.PI * RS) / ZS;
       const straight = CHAIN_RISE;
       const arcLen = Math.PI * RS;
-      const releaseU = 0.78;
-      const releaseS = straight + releaseU * arcLen;
-      const scoopS = 2 * straight + arcLen + 0.5 * arcLen;
+      const bucketCycle=createBucketCycle({straight,arc:arcLen,loop:chainL,hang:.24});
+      const releaseS=bucketCycle.releaseS;
+      const scoopS=bucketCycle.pickupS;
 
       function seatOf(frame) {
-        return add(add(frame.pos, scale(frame.outward, CUP)), scale(frame.tangent, SEAT_ALONG));
+        return bucketCycle.ball(frame.pos,frame.s);
       }
 
       const releaseSeat = seatOf(chainFrame(releaseS));
       const scoopSeat = seatOf(chainFrame(scoopS));
 
-      const spiralStart = v3(releaseSeat.x, releaseSeat.y - R, releaseSeat.z);
-      const trayEnd = v3(scoopSeat.x, scoopSeat.y - R, scoopSeat.z);
+      // Preserve the established music/track layout; new stations connect to these anchors.
+      const layoutRS=3.2/(Math.PI*(N_LINKS/ZS-1)),layoutPhi=.22*Math.PI;
+      const layoutUpper=v3(-1.82+(layoutRS+CUP)*Math.cos(layoutPhi)+SEAT_ALONG*Math.sin(layoutPhi),1.18+3.2+(layoutRS+CUP)*Math.sin(layoutPhi)-SEAT_ALONG*Math.cos(layoutPhi),0);
+      const layoutLower=v3(-1.82,1.18-Math.hypot(layoutRS+CUP,SEAT_ALONG),0);
+      const spiralStart = v3(layoutUpper.x+.30,layoutUpper.y-R,0);
+      const trayEnd = v3(layoutLower.x,layoutLower.y-R,0);
       const totalDrop = spiralStart.y - trayEnd.y;
       const extra = totalDrop - SPIRAL_DROP - S_DROP;
       if (!(extra > 0.18)) {
@@ -175,7 +200,6 @@ const bootTimer = setTimeout(() => {
       }
       const d1 = extra * 0.14;
       const dTray = Math.min(0.22, extra * 0.24);
-      const d2 = extra - d1 - dTray;
 
       const dz = spiralStart.z - 0.78;
       const dx = -Math.sqrt(Math.max(0.05, SPIRAL_R * SPIRAL_R - dz * dz));
@@ -245,10 +269,6 @@ const bootTimer = setTimeout(() => {
         trayEnd,
       };
 
-      function lineFn(a, b) {
-        return (t) => lerp(a, b, t);
-      }
-
       const H_funnel = spiralStart.y;
       const FUNNEL_TURN = 5 * Math.PI;
       const FUNNEL_R0 = 1.25;
@@ -261,12 +281,10 @@ const bootTimer = setTimeout(() => {
         const a = alpha0 + theta;
         return v3(
           funnelC.x + radius * Math.cos(a),
-          H_funnel - 0.12 * t,
+          H_funnel - 0.12 * t - 0.22 * t ** 4,
           funnelC.z + radius * Math.sin(a),
         );
       }
-
-      const funnelEnd = funnelPoint(1);
       const funnelGap = Math.hypot(funnelPoint(0).x - spiralStart.x, funnelPoint(0).y - spiralStart.y, funnelPoint(0).z - spiralStart.z);
       if (funnelGap > 1e-6) throw new Error("漏斗入口没有接在提升机释放点上");
 
@@ -350,30 +368,6 @@ const bootTimer = setTimeout(() => {
         return lerp(lerp(a, b, u), lerp(b, c, u), u);
       }
 
-      function descendingBezier(p0, t0, p3, t3) {
-        const span = Math.max(len(sub(p3, p0)), 1e-4);
-        let h = span * 0.55;
-        let best = null;
-        for (let attempt = 0; attempt < 6; attempt++) {
-          const pts = [];
-          let rise = 0;
-          let prevY = p0.y;
-          const steps = 72;
-          for (let i = 0; i <= steps; i++) {
-            const p = cubicPoint(p0, add(p0, scale(t0, h)), add(p3, scale(t3, -h)), p3, i / steps);
-            if (i > 0) rise = Math.max(rise, p.y - prevY);
-            prevY = p.y;
-            pts.push(p);
-          }
-          pts[0] = p0;
-          pts[pts.length - 1] = p3;
-          best = pts;
-          if (rise < 1e-4) return pts;
-          h *= 0.82;
-        }
-        return best;
-      }
-
       function tangentAngle(a, b) {
         const d = Math.max(-1, Math.min(1, dot(norm(a), norm(b))));
         return (Math.acos(d) * 180) / Math.PI;
@@ -406,25 +400,6 @@ const bootTimer = setTimeout(() => {
         return add(smp.pos, scale(smp.up, R));
       }
 
-      function ballPolyline(track, s0, s1, steps) {
-        const out = [];
-        for (let i = 0; i <= steps; i++) out.push(ballCenter(track, s0 + (s1 - s0) * (i / steps)));
-        return out;
-      }
-
-      function floorPolyline(track, s0, s1, steps) {
-        const out = [];
-        for (let i = 0; i <= steps; i++) out.push(sample(track, s0 + (s1 - s0) * (i / steps)).pos);
-        return out;
-      }
-
-      function toFloorPts(ballPts) {
-        const framed = framePts(resample(ballPts, N));
-        const out = [];
-        for (let i = 0; i < N; i++) out.push(sub(framed.pts[i], scale(framed.up[i], R)));
-        return out;
-      }
-
       function forwardTangent(track, s) {
         const a = ballCenter(track, Math.max(0, s - 0.015));
         const b = ballCenter(track, Math.min(track.total, s + 0.015));
@@ -443,7 +418,7 @@ const bootTimer = setTimeout(() => {
       const FILLET_L = 2.5 * R;
       const axisX = funnelC.x;
       const axisZ = funnelC.z;
-      const discBottom = H_funnel - 0.12 - 0.15 * R - 0.08;
+      const discBottom = H_funnel - 0.12 - 0.22 - 0.15 * R - 0.08;
       let yFloor = Math.max(ramp1End.y + 0.55, discBottom - 1.15);
       let yOutlet = yFloor + 1.5 * R;
       if (discBottom - yOutlet < 0.55) {
@@ -735,8 +710,9 @@ const bootTimer = setTimeout(() => {
       });
       tracks[0].next = null;
 
-      function transportFrame(track) {
+      function transportFrame(track, endFrame) {
         const last = N - 1;
+        if(endFrame){track.up[last]=endFrame.up;track.side[last]=endFrame.side;}
         let up = track.up[last];
         let side = track.side[last];
         if (up.y < 0) {
@@ -817,18 +793,16 @@ const bootTimer = setTimeout(() => {
       const J_RAMP_TRAY = mustBridge("下坡→回收槽", tracks[3], N - 1, tracks[4], 0);
       const J_TRAY_BALL = tracks[4].pts[N - 1];
       const queueHead = tracks[2].pts[N - 1];
-      const queueTail = scoopSeat;
+      const queueTail = layoutLower;
+      const supplyHead=add(scoopSeat,v3(0,0,.725));
       const queueDir = norm(sub(queueTail, queueHead));
       const queueJoinAng = tangentAngle(tracks[2].tangent[N - 1], queueDir);
-      let queueRaw;
-      if (queueJoinAng < 5) {
-        queueRaw = [queueHead, queueTail];
-      } else {
-        const span = len(sub(queueTail, queueHead));
-        const lead = Math.min(FILLET_L * 2, span * 0.3);
-        const join = add(queueHead, scale(queueDir, lead));
-        queueRaw = concatPoly([filletCubic(queueHead, tracks[2].tangent[N - 1], join, queueDir, 48), [queueTail]]);
-      }
+      const startDirection = norm(v3(tracks[2].tangent[N-1].x,0,tracks[2].tangent[N-1].z));
+      const beyond = add(queueHead,scale(startDirection,2.3));
+      const outsideZ = Math.min(...tracks[2].pts.map(p=>p.z))-0.85;
+      const returnWaypoints = [queueHead,beyond,v3(beyond.x+1.4,0,outsideZ),v3(queueTail.x+1.6,0,outsideZ),v3(queueTail.x+1.4,0,queueTail.z),v3(queueTail.x+.7,0,queueTail.z),queueTail];
+      const returnCurve = new THREE.CatmullRomCurve3(returnWaypoints.map(p=>new THREE.Vector3(p.x,0,p.z)),false,"centripetal");
+      const queueRaw = Array.from({length:500},(_,i)=>{const t=i/499; const p=returnCurve.getPoint(t);return v3(p.x,queueHead.y+(queueTail.y-queueHead.y)*t,p.z)});
       const queueAcc = [0];
       for (let i = 1; i < queueRaw.length; i++) queueAcc.push(queueAcc[i - 1] + len(sub(queueRaw[i], queueRaw[i - 1])));
       const queueTotal = queueAcc[queueAcc.length - 1];
@@ -849,7 +823,16 @@ const bootTimer = setTimeout(() => {
       }
       const queueCut = queueTotal - queueHold;
       const approach = buildTrackFromPts(sliceQueue(0, queueCut));
-      const queue = buildTrackFromPts(sliceQueue(queueCut, queueTotal));
+      let queue = buildTrackFromPts(sliceQueue(queueCut, queueTotal));
+      const turnRadius=.40;
+      const arcStart=v3(supplyHead.x-turnRadius,queueTail.y,supplyHead.z+2*turnRadius);
+      const feedCurve=new THREE.CatmullRomCurve3([queueTail,v3(queueTail.x-.65,queueTail.y,0),v3(xS-RS-.42,queueTail.y,.20),v3(xS-RS-.42,queueTail.y,1.9),v3(arcStart.x-.30,queueTail.y,arcStart.z),arcStart].map(p=>new THREE.Vector3(p.x,p.y,p.z)),false,'centripetal');
+      const feedPoints=Array.from({length:200},(_,i)=>{const p=feedCurve.getPoint(i/199);return v3(p.x,0,p.z);});
+      for(let i=1;i<=64;i++){const a=Math.PI*.5*i/64;feedPoints.push(v3(supplyHead.x-turnRadius+turnRadius*Math.sin(a),0,supplyHead.z+turnRadius+turnRadius*Math.cos(a)));}
+      for(let i=1;i<=48;i++)feedPoints.push(v3(supplyHead.x,0,supplyHead.z+turnRadius*(1-i/48)));
+      let feedLength=0;const feedDistances=[0];for(let i=1;i<feedPoints.length;i++){feedLength+=len(sub(feedPoints[i],feedPoints[i-1]));feedDistances.push(feedLength);}
+      feedPoints.forEach((p,i)=>p.y=queueTail.y+(supplyHead.y-queueTail.y)*Math.min(1,feedDistances[i]/(feedLength-.024)));
+      queue=buildTrackFromPts([...queue.pts,...feedPoints.slice(1)]);
       approach.centerline = true;
       queue.centerline = true;
       approach.name = "ramp2";
@@ -857,20 +840,24 @@ const bootTimer = setTimeout(() => {
       approach.next = 4;
       queue.next = null;
       approach.pts[0] = queueHead;
-      queue.pts[N - 1] = queueTail;
+      queue.pts[N - 1] = supplyHead;
       queue.pts[0] = approach.pts[N - 1];
-      transportFrame(approach);
-      transportFrame(queue);
-      approach.up[0] = tracks[2].up[N - 1];
-      approach.side[0] = tracks[2].side[N - 1];
-      queue.up[0] = approach.up[N - 1];
-      queue.side[0] = approach.side[N - 1];
+      // Open channels need a gravity-facing floor. Transporting a frame
+      // backward through the entire return path accumulated almost 90° roll.
+      const openChannels=[tracks[1],tracks[2],approach,queue];
+      for(const tr of openChannels){const f=framePts(tr.pts);tr.up=f.up;tr.side=f.side;}
+      {const f=framePts(inletTrack.pts);inletTrack.up=f.up;inletTrack.side=f.side;}
+      for(let i=1;i<openChannels.length;i++){
+        const a=openChannels[i-1],b=openChannels[i],t=norm(add(a.tangent[N-1],b.tangent[0]));
+        const side=norm(v3(-t.z,0,t.x)),up=norm(cross(side,t));
+        a.side[N-1]=b.side[0]=side;a.up[N-1]=b.up[0]=up;
+      }
       tracks[3] = approach;
       tracks[4] = queue;
       function assertDown(tr) {
         let max = -Infinity;
         for (let i = 0; i < N; i++) max = Math.max(max, tr.dyds[i]);
-        if (!(max < -1e-4)) throw new Error(tr.name + " 坡度不为负 max=" + max);
+        if (!(max < (tr.name==="tray"?1e-8:-1e-4))) throw new Error(tr.name + " 坡度不为负 max=" + max);
         return max;
       }
       const queueSlope = Math.max(assertDown(approach), assertDown(queue));
@@ -887,19 +874,15 @@ const bootTimer = setTimeout(() => {
       const ringFloor = funnelTrack.pts[0];
       const ringT = norm(forwardTangent(funnelTrack, 0));
       const ringTH = norm(v3(ringT.x, 0, ringT.z));
-      const POUR_U = 0.62;
-      const pourS = straight + POUR_U * arcLen;
+      const pourS = bucketCycle.releaseS;
       const pourSeat = seatOf(chainFrame(pourS));
       const outerRim = FUNNEL_R0 + 1.1 * R + 0.05;
       const horizR = (p) => Math.hypot(p.x - funnelC.x, p.z - funnelC.z);
-      const angOf = (p) => Math.atan2(p.z - funnelC.z, p.x - funnelC.x);
-      const clearR = outerRim + 0.06;
-      let Lgate = 0.8 * R;
       const tipR = RS + (2 * RS) / ZS;
       const chainLoop = 2 * CHAIN_RISE + 2 * Math.PI * RS;
       function mechGap(p) {
         let best = Infinity;
-        for (const zFace of [0.34, -0.34]) {
+        for (const zFace of [0.37, -0.37]) {
           for (let i = 0; i < ZS; i++) {
             const a = (i / ZS) * Math.PI * 2;
             for (const cy of [yTop, yBot]) {
@@ -910,7 +893,7 @@ const bootTimer = setTimeout(() => {
         }
         for (let i = 0; i < 96; i++) {
           const fr = chainFrame((i / 96) * chainLoop);
-          for (const z of [0.36, -0.36]) {
+          for (const z of [0.39, -0.39]) {
             const d = Math.hypot(p.x - fr.pos.x, p.y - fr.pos.y, p.z - z) - R - 0.06;
             if (d < best) best = d;
           }
@@ -924,7 +907,7 @@ const bootTimer = setTimeout(() => {
         if (mechGap(p) < 0.045) break;
         Lsafe = L;
       }
-      const guideLen = Math.max(0.8 * R, Lsafe);
+      const guideLen = .75;
       const gate = add(funnelIn, scale(ringTH, -guideLen));
       gate.y = funnelIn.y;
       const touch = v3(funnelIn.x, funnelIn.y, funnelIn.z);
@@ -939,12 +922,22 @@ const bootTimer = setTimeout(() => {
         L: guideLen + 0.05,
         half: 1.1 * R + 0.04,
       };
-      const raw = [pourSeat];
-      for (let i = 1; i <= 36; i++) {
-        const p = lerp(pourSeat, gate, i / 36);
-        p.y = pourSeat.y + (gate.y - pourSeat.y) * (i / 36);
-        raw.push(p);
+      const dumpTangent=v3(0,-Math.sin(bucketCycle.angle),Math.cos(bucketCycle.angle));
+      const mouthEnd=add(pourSeat,scale(dumpTangent,.18));
+      const raw=Array.from({length:48},(_,i)=>lerp(pourSeat,mouthEnd,i/47));
+      const radius=.40,verticalEase=.25;
+      for(let i=1;i<=160;i++){
+        const a=Math.PI*i/160,d=radius*a;
+        raw.push(v3(mouthEnd.x+radius*(1-Math.cos(a)),mouthEnd.y-Math.tan(bucketCycle.angle)*verticalEase*(1-Math.exp(-d/verticalEase))-.01*d,mouthEnd.z+radius*Math.sin(a)));
       }
+      const bend=raw.at(-1),bendTangent=v3(0,-Math.tan(bucketCycle.angle)*Math.exp(-Math.PI*radius/verticalEase)-.01,-1);
+      const downCurve=(a,t0,b,t1)=>{
+        const d=len(sub(b,a)),drop=Math.max(.00001,a.y-b.y),u=norm(t0),v=norm(t1);
+        const h0=Math.min(d*.40,drop*.45/Math.max(1e-6,-u.y)),h1=Math.min(d*.40,drop*.45/Math.max(1e-6,-v.y));
+        const c1=add(a,scale(u,h0)),c2=sub(b,scale(v,h1));
+        return Array.from({length:96},(_,i)=>cubicPoint(a,c1,c2,b,i/95));
+      };
+      raw.push(...downCurve(bend,bendTangent,gate,ringTH).slice(1));
       for (let i = 1; i <= 48; i++) raw.push(lerp(gate, touch, i / 48));
       const pour = buildTrackFromPts(raw);
       pour.centerline = true;
@@ -983,6 +976,7 @@ const bootTimer = setTimeout(() => {
           pour.dyds[i] = (pour.pts[i + 1].y - pour.pts[i - 1].y) / (pour.sTab[i + 1] - pour.sTab[i - 1] || 1);
         }
       }
+      {const f=framePts(pour.pts);pour.up=f.up;pour.side=f.side;pour.tangent=f.tangent;}
       let pourSlope = -Infinity;
       let guideSlope = -Infinity;
       for (let i = 0; i < N; i++) {
@@ -996,10 +990,23 @@ const bootTimer = setTimeout(() => {
       const floorJoin = Math.abs((pour.pts[N - 1].y - pour.up[N - 1].y * R) - ringFloor.y);
       tracks.push(pour);
       const pourIndex = tracks.length - 1;
+      const returnFrame=framePts(tracks[3].pts);
+      tracks[3].up=returnFrame.up;tracks[3].side=returnFrame.side;
+      const splitS=tracks[3].total*0.43,joinS=tracks[3].total*0.74;
+      const branchStart=sample(tracks[3],splitS),branchEnd=sample(tracks[3],joinS);
+      const responseTrack=buildTrackFromPts(responseCurve(branchStart.pos,branchEnd.pos,branchStart.tangent,branchEnd.tangent));
+      responseTrack.name='response';responseTrack.centerline=true;responseTrack.next=3;
+      const responseIndex=tracks.length;tracks.push(responseTrack);
+      const routing=createRouteSelector();
+      const switchDrive=createSwitchDrive({duration:.3});
+      const retarders={main:createMergeRetarder(),response:createMergeRetarder()};
+      const forkGate=splitS-0.5,mergeMainGate=joinS-1.0,mergeResponseGate=responseTrack.total-1.0;
+      let forkOwner=null,mergeSerial=0;
       let radialDev = 0;
       let overDisc = 0;
       {
         for (let i = 0; i < N; i++) {
+          if(pour.total-pour.sTab[i]>guideLen+0.01)continue;
           const p = pour.pts[i];
           const q = pour.pts[Math.min(N - 1, i + 1)];
           for (const s of [p, lerp(p, q, 0.5)]) {
@@ -1208,7 +1215,7 @@ const bootTimer = setTimeout(() => {
       }
 
       const canvasHost = document.getElementById("view");
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: false });
       if (!renderer.getContext()) {
         throw new Error("当前浏览器无法创建 WebGL 画布");
       }
@@ -1217,9 +1224,16 @@ const bootTimer = setTimeout(() => {
       renderer.domElement.style.width = "100%";
       renderer.domElement.style.height = "100%";
       renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 0.95;
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.setClearColor(0x0b0e1a, 1);
+      renderer.shadowMap.autoUpdate = false;
+      renderer.shadowMap.needsUpdate = true;
+      // The soft directional shadow is a slow ambient cue; refreshing it twice
+      // per second keeps moving parts grounded without dominating weak CPUs.
+      const shadowCadence = createShadowCadence(30);
+      renderer.setClearColor(0xf5f2eb, 1);
       canvasHost.appendChild(renderer.domElement);
 
       function attachCanvas() {
@@ -1228,13 +1242,13 @@ const bootTimer = setTimeout(() => {
       }
 
       const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x0b0e1a);
+      scene.background = new THREE.Color(0xf5f2eb);
 
       try {
         const { RoomEnvironment } = await import("three/addons/environments/RoomEnvironment.js");
         const pmrem = new THREE.PMREMGenerator(renderer);
         scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
-        scene.environmentIntensity = 0.4;
+        scene.environmentIntensity = 0.7;
         pmrem.dispose();
       } catch {
         /* 环境贴图失败时仍用灯光表现金属 */
@@ -1251,7 +1265,7 @@ const bootTimer = setTimeout(() => {
         g.fillRect(0, 0, 512, 512);
         for (let i = 0; i < 90; i++) {
           const y = (i + 0.5) * (512 / 90);
-          g.strokeStyle = `rgba(${80 + (i % 5) * 8}, ${52 + (i % 3) * 6}, ${28}, ${0.05 + (i % 4) * 0.025})`;
+          g.strokeStyle = `rgba(${80 + (i % 5) * 8}, ${52 + (i % 3) * 6}, ${28}, ${0.09 + (i % 4) * 0.035})`;
           g.lineWidth = 1 + (i % 3);
           g.beginPath();
           g.moveTo(0, y);
@@ -1268,33 +1282,29 @@ const bootTimer = setTimeout(() => {
       woodMap.repeat.set(2.2, 2.2);
       const wood = new THREE.MeshStandardMaterial({
         map: woodMap,
-        color: 0xecc48a,
+        color: 0xd9c3a4,
         roughness: 0.75,
         metalness: 0.02,
       });
       const woodDark = new THREE.MeshStandardMaterial({
         map: woodMap,
-        color: 0xd7ae72,
+        color: 0xb29672,
         roughness: 0.78,
         metalness: 0.02,
       });
-      const brass = new THREE.MeshStandardMaterial({
-        color: 0xd4a85a,
-        metalness: 0.82,
-        roughness: 0.28,
-      });
       const steel = new THREE.MeshStandardMaterial({
-        color: 0xc5c9d0,
-        metalness: 0.9,
-        roughness: 0.25,
+        color: 0xd9e1e8,
+        metalness: 1,
+        roughness: 0.18,
+        envMapIntensity: 1.3,
       });
       const gearMat = new THREE.MeshStandardMaterial({
-        color: 0x9aa1ab,
-        metalness: 0.86,
-        roughness: 0.34,
+        color: 0x7bb4ca,
+        metalness: 0.12,
+        roughness: 0.6,
       });
       const motorMat = new THREE.MeshStandardMaterial({
-        color: 0xf5b301,
+        color: 0xefd58e,
         roughness: 0.42,
         metalness: 0.12,
       });
@@ -1309,30 +1319,8 @@ const bootTimer = setTimeout(() => {
         roughness: 0.38,
       });
 
-      function tubeAlong(track, sideSign, radius, yLift) {
-        const curve = new THREE.Curve();
-        curve.getPoint = (t, target = new THREE.Vector3()) => {
-          const i = Math.min(N - 1, Math.max(0, t * (N - 1)));
-          const i0 = Math.floor(i);
-          const i1 = Math.min(N - 1, i0 + 1);
-          const u = i - i0;
-          const p0 = track.pts[i0];
-          const p1 = track.pts[i1];
-          const s0 = track.side[i0];
-          const s1 = track.side[i1];
-          const u0 = track.up[i0];
-          const u1 = track.up[i1];
-          const uy = u0.y + (u1.y - u0.y) * u;
-          const ux = u0.x + (u1.x - u0.x) * u;
-          const uz = u0.z + (u1.z - u0.z) * u;
-          const drop = track.centerline ? R : 0;
-          const x = p0.x + (p1.x - p0.x) * u + (s0.x + (s1.x - s0.x) * u) * 0.55 * R * sideSign + ux * (yLift - drop);
-          const y = p0.y + (p1.y - p0.y) * u + (s0.y + (s1.y - s0.y) * u) * 0.55 * R * sideSign + uy * (yLift - drop);
-          const z = p0.z + (p1.z - p0.z) * u + (s0.z + (s1.z - s0.z) * u) * 0.55 * R * sideSign + uz * (yLift - drop);
-          return target.set(x, y, z);
-        };
-        return new THREE.TubeGeometry(curve, 280, radius, 7, false);
-      }
+      const trackMaterials = Object.fromEntries(Object.entries({funnel:0xd58da2,inlet:0x7bb4ca,chute:0x7bb4ca,scurve:0xe1be64,ramp2:0x8eb9a4,tray:0xd58da2,pour:0xe1be64,response:0xaaa2bf}).map(([name,color])=>[name,new THREE.MeshStandardMaterial({map:woodMap,color,roughness:0.66,metalness:0.025})]));
+      const trackMaterial = name => trackMaterials[name] || wood;
 
       function addWoodU(track, opts) {
         const pts = [];
@@ -1340,6 +1328,7 @@ const bootTimer = setTimeout(() => {
         const ups = [];
         const wallL = [];
         const wallR = [];
+        const junction = track === tracks[3] || track === responseTrack;
         const lo = 1.1 * R;
         const hi = 1.4 * R;
         const kappas = [];
@@ -1377,9 +1366,19 @@ const bootTimer = setTimeout(() => {
           const raised = track.name === "pour" ? lo : lo + (hi - lo) * bend;
           wallL.push(outer < 0 ? raised : lo);
           wallR.push(outer > 0 ? raised : lo);
+          if (junction) {wallL[i]=0;wallR[i]=0;}
         }
         if (!(seat < 1e-4)) throw new Error(track.name + " 球没有贴在槽底上：" + seat);
-        const sweep = addUChannel(pts, sides, ups, null, null, null, wallL, wallR, opts);
+        if(track.name==='tray'){
+          const end=pts.at(-1),side=sides.at(-1),up=ups.at(-1);
+          pts.push(add(end,v3(0,0,-.30)));sides.push(side);ups.push(up);wallL.push(wallL.at(-1));wallR.push(wallR.at(-1));
+        }
+        if(track.name==='pour'){
+          const trim=Array.from(track.sTab).findIndex(s=>s>=.045);
+          pts.splice(0,trim);sides.splice(0,trim);ups.splice(0,trim);wallL.splice(0,trim);wallR.splice(0,trim);
+        }
+        const halfWidths = track.name === "pour" ? Array.from(track.sTab).filter(s=>s>=.045).map(s => 1.25*R - .032*Math.max(0,1-(track.total-s)/.30)) : track.name==='scurve'?Array.from(track.sTab).map(s=>{const k=Math.min(1,s/.25);return R*(1.1+.095*k*k*(3-2*k));}):null;
+        const sweep = addUChannel(pts, sides, ups, halfWidths, null, null, wallL, wallR, { ...opts, material: trackMaterial(track.name), half: junction ? 1.25*R : track.name === "scurve" ? 1.18*R : 1.1*R });
         return { seat, sweep };
       }
 
@@ -1419,8 +1418,49 @@ const bootTimer = setTimeout(() => {
         return Object.assign({}, track, { pts, tangent, side, up, dyds, sTab, total: track.total });
       }
       tracks[2] = densifyTrack(tracks[2], 6);
-      const woodU = [tracks[2], tracks[3], tracks[4]].map((tr) => addWoodU(tr));
-      woodU.push(addWoodU(tracks[pourIndex], { endOverlap: false }));
+      const woodU = [tracks[2], tracks[3], tracks[4],responseTrack].map((tr) => addWoodU(tr,tr.name==="tray"?{endOverlap:false}:undefined));
+      woodU.push(addWoodU(tracks[pourIndex], { startOverlap:false,endOverlap: false }));
+
+      // Generate upright walls from the union, rather than cutting two separate
+      // sets of rails. The outer perimeter and the central island stay closed.
+      {
+        const lanes=[tracks[3],responseTrack];
+        const footprint=junctionFootprint(lanes.map(tr=>({points:tr.pts,sides:tr.side})),1.25*R);
+        const floors=lanes.map(tr=>tr.pts.map((p,i)=>tr.centerline?sub(p,scale(tr.up[i],R)):p));
+        const nearest=(x,z)=>{
+          let best={distance:Infinity,y:0,lane:0};
+          floors.forEach((points,lane)=>{for(let i=1;i<points.length;i++){
+            const a=points[i-1],b=points[i],dx=b.x-a.x,dz=b.z-a.z;
+            const t=Math.max(0,Math.min(1,((x-a.x)*dx+(z-a.z)*dz)/(dx*dx+dz*dz||1)));
+            const distance=Math.hypot(x-a.x-t*dx,z-a.z-t*dz);
+            if(distance<best.distance)best={distance,y:a.y+t*(b.y-a.y)-.007,lane};
+          }});return best;
+        };
+        const buffers=[[],[]];
+        for(const polygon of footprint)for(let ri=0;ri<polygon.length;ri++){
+          let ring=polygon[ri].slice(0,-1);
+          const area=ring.reduce((sum,p,i)=>{const q=ring[(i+1)%ring.length];return sum+p[0]*q[1]-q[0]*p[1];},0);
+          if((area>0)!==(ri===0))ring.reverse();
+          for(let i=0;i<ring.length;i++){
+            const a=ring[i],b=ring[(i+1)%ring.length],dx=b[0]-a[0],dz=b[1]-a[1],length=Math.hypot(dx,dz);
+            if(length<1e-8)continue;
+            const mid={x:(a[0]+b[0])/2,z:(a[1]+b[1])/2};
+            // Feed and exit are open portals, not end walls.
+            if([tracks[3].pts[0],tracks[3].pts.at(-1)].some(p=>Math.hypot(mid.x-p.x,mid.z-p.z)<.025))continue;
+            const nx=dz/length*.15*R,nz=-dx/length*.15*R;
+            const fa=nearest(...a),fb=nearest(...b),lane=nearest((a[0]+b[0])/2,(a[1]+b[1])/2).lane;
+            const A=[a[0],fa.y,a[1]],B=[b[0],fb.y,b[1]],C=[b[0],fb.y+1.9*R,b[1]],D=[a[0],fa.y+1.9*R,a[1]];
+            const outer=p=>[p[0]+nx,p[1],p[2]+nz];
+            const quad=(a,b,c,d)=>buffers[lane].push(...a,...b,...c,...a,...c,...d);
+            quad(A,B,C,D);quad(outer(B),outer(A),outer(D),outer(C));quad(D,C,outer(C),outer(D));
+          }
+        }
+        buffers.forEach((positions,lane)=>{
+          const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.computeVertexNormals();
+          const material=trackMaterial(lanes[lane].name).clone();material.side=THREE.DoubleSide;
+          const rail=new THREE.Mesh(geometry,material);rail.name='junction/guard';rail.castShadow=true;rail.receiveShadow=true;scene.add(rail);
+        });
+      }
 
       function addUChannel(pts, sides, ups, halfAt, wallAt, dropAt, wallLeft, wallRight, flags) {
         const overlap = 0.1 * R;
@@ -1443,7 +1483,7 @@ const bootTimer = setTimeout(() => {
           wallLeft = grow(wallLeft, startOverlap, endOverlap);
           wallRight = grow(wallRight, startOverlap, endOverlap);
         }
-        const half0 = 1.1 * R;
+        const half0 = flags?.half || 1.1 * R;
         const wallT = 0.15 * R;
         const wallH0 = 1.1 * R;
         const floorT = 0.15 * R;
@@ -1464,7 +1504,8 @@ const bootTimer = setTimeout(() => {
         for (let i = 0; i < n; i++) {
           const up = ups[i];
           const drop = dropAt ? dropAt[i] : 0;
-          const p = drop ? add(pts[i], scale(up, -drop)) : pts[i];
+          // Reserve a small geometric allowance for chords between curved samples.
+          const p = add(pts[i], scale(up, -drop - 0.007));
           const sd = sides[i];
           const half = halfAt ? halfAt[i] : half0;
           const wallH = wallAt ? wallAt[i] : wallH0;
@@ -1513,56 +1554,26 @@ const bootTimer = setTimeout(() => {
         strip(rightBot, leftBot);
         strip(leftBot, left);
         strip(right, rightBot);
-        strip(left, leftTop);
-        strip(leftOutTop, leftOut);
-        strip(leftTop, leftOutTop);
-        strip(leftOut, leftBot);
-        strip(rightTop, right);
-        strip(rightOut, rightOutTop);
-        strip(rightOutTop, rightTop);
-        strip(rightBot, rightOut);
+        // Follow the solid cross-section perimeter: interior wall faces must
+        // face the ball, and exterior/top faces must face out of the wood.
+        strip(leftTop, left);
+        strip(leftOut, leftOutTop);
+        strip(leftOutTop, leftTop);
+        strip(leftBot, leftOut);
+        strip(right, rightTop);
+        strip(rightOutTop, rightOut);
+        strip(rightTop, rightOutTop);
+        strip(rightOut, rightBot);
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
         geo.setIndex(index);
         geo.computeVertexNormals();
-        const mesh = new THREE.Mesh(geo, wood);
+        const mesh = new THREE.Mesh(geo, flags?.material || wood);
+        mesh.name = "channel/" + (flags?.material?.color.getHexString() || "wood");
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         scene.add(mesh);
         return { start: srcStart, end: srcEnd };
-      }
-
-      function carrySweep(tangents, ups, sides) {
-        const last = ups.length - 1;
-        if (last < 1) return;
-        let up = ups[last];
-        let side = sides[last];
-        if (up.y < 0) {
-          up = scale(up, -1);
-          side = scale(side, -1);
-        }
-        side = norm(cross(tangents[last], up));
-        up = norm(cross(side, tangents[last]));
-        if (up.y < 0) {
-          side = scale(side, -1);
-          up = scale(up, -1);
-        }
-        ups[last] = up;
-        sides[last] = side;
-        for (let i = last - 1; i >= 0; i--) {
-          const t = tangents[i];
-          let carried = sub(ups[i + 1], scale(t, dot(ups[i + 1], t)));
-          if (len(carried) < 1e-5) carried = ups[i + 1];
-          carried = norm(carried);
-          let sd = norm(cross(t, carried));
-          if (dot(sd, sides[i + 1]) < 0) {
-            sd = scale(sd, -1);
-            carried = scale(carried, -1);
-          }
-          carried = norm(cross(sd, t));
-          ups[i] = carried;
-          sides[i] = sd;
-        }
       }
 
       function addTrackU(track, s0, s1, dense) {
@@ -1573,9 +1584,10 @@ const bootTimer = setTimeout(() => {
         const sides = [];
         const ups = [];
         const tangents = [];
+        const halfAt = [];
         const wallL = [];
         const wallR = [];
-        const half = 1.1 * R;
+        const half = 1.05 * R;
         for (let i = 0; i <= steps; i++) {
           const smp = sample(track, s0 + span * (i / steps));
           const floor = track.centerline ? sub(smp.pos, scale(smp.up, R)) : smp.pos;
@@ -1584,7 +1596,7 @@ const bootTimer = setTimeout(() => {
           ups.push(smp.up);
           tangents.push(smp.tangent);
         }
-        carrySweep(tangents, ups, sides);
+        // Sweep with the same transported frame that defines the ball center.
         for (let i = 0; i < pts.length; i++) {
           let wL = 1.1 * R;
           let wR = 1.1 * R;
@@ -1596,99 +1608,15 @@ const bootTimer = setTimeout(() => {
             if (rL >= rR) wL = 0.02;
             else wR = 0.02;
           }
+          if(track.name === "funnel") { const remaining=s1-(s0+span*i/steps); const taper=Math.min(1,remaining/0.7); wL*=taper; wR*=taper; }
+          const remaining=s1-(s0+span*i/steps);
+          const throatHalf = track.name === "funnel" ? 0.008+(half-0.008)*Math.min(1,remaining/0.65) : half;
+          halfAt.push(throatHalf);
+          if(throatHalf < R) { wL=0; wR=0; }
           wallL.push(wL);
           wallR.push(wR);
         }
-        addUChannel(pts, sides, ups, null, null, null, wallL, wallR);
-      }
-      function addTrackUAdaptive(track, sStart) {
-        const spans = track.dense || [];
-        const baseDs = track.total / (N - 1);
-        const pts = [];
-        const sides = [];
-        const ups = [];
-        const inSpan = (s) => spans.some((sp) => s >= sp.s0 - 1e-4 && s <= sp.s1 + 1e-4);
-        let s = sStart || 0;
-        if (track.total - s < 1e-3) return;
-        while (s < track.total - 1e-6) {
-          const smp = sample(track, s);
-          pts.push(track.centerline ? sub(smp.pos, scale(smp.up, R)) : smp.pos);
-          sides.push(smp.side);
-          ups.push(smp.up);
-          s += inSpan(s) ? baseDs * 0.5 : baseDs;
-        }
-        const smp = sample(track, track.total);
-        pts.push(track.centerline ? sub(smp.pos, scale(smp.up, R)) : smp.pos);
-        sides.push(smp.side);
-        ups.push(smp.up);
-        addUChannel(pts, sides, ups);
-      }
-
-      function addElbowTube(track, s1) {
-        const rIn = 1.15 * R;
-        const wall = 0.15 * R;
-        const slices = 22;
-        const steps = Math.max(16, Math.ceil((s1 / Math.max(track.total, 1e-4)) * 64));
-        const positions = [];
-        const indices = [];
-        for (let i = 0; i <= steps; i++) {
-          const u = i / steps;
-          const smp = sample(track, s1 * u);
-          const flare = u > 0.86 ? (u - 0.86) / 0.14 : 0;
-          const inner = rIn + flare * 0.2 * R;
-          const thick = wall * (1 - flare * 0.25);
-          const n2 = norm(cross(smp.tangent, smp.side));
-          for (let k = 0; k < slices; k++) {
-            const a = (k / slices) * Math.PI * 2;
-            const rad = add(scale(smp.side, Math.cos(a)), scale(n2, Math.sin(a)));
-            const inn = add(smp.pos, scale(rad, inner));
-            const out = add(smp.pos, scale(rad, inner + thick));
-            positions.push(inn.x, inn.y, inn.z, out.x, out.y, out.z);
-          }
-        }
-        const stride = slices * 2;
-        for (let i = 0; i < steps; i++) {
-          for (let k = 0; k < slices; k++) {
-            const k2 = (k + 1) % slices;
-            const a = i * stride + k * 2;
-            const b = i * stride + k2 * 2;
-            const c = (i + 1) * stride + k2 * 2;
-            const d = (i + 1) * stride + k * 2;
-            indices.push(a, d, c, a, c, b);
-            indices.push(a + 1, b + 1, c + 1, a + 1, c + 1, d + 1);
-          }
-        }
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-        geo.setIndex(indices);
-        geo.computeVertexNormals();
-        const mesh = new THREE.Mesh(geo, wood);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        scene.add(mesh);
-      }
-
-      function sectionFrame(track, i) {
-        const tng = track.tangent[i];
-        let up = track.up[i];
-        let side = track.side[i];
-        if (up.y < 0.82) {
-          const w = (0.82 - Math.max(up.y, 0)) / 0.82;
-          const b = v3(up.x * (1 - w), up.y * (1 - w) + w, up.z * (1 - w));
-          const L = Math.hypot(b.x, b.y, b.z) || 1;
-          up = v3(b.x / L, b.y / L, b.z / L);
-          const cx = cross(tng, up);
-          if (len(cx) > 0.35) {
-            side = norm(cx);
-            if (dot(side, track.side[i]) < 0) side = scale(side, -1);
-            up = norm(cross(side, tng));
-            if (up.y < 0) {
-              side = scale(side, -1);
-              up = norm(cross(side, tng));
-            }
-          }
-        }
-        return { up, side };
+        addUChannel(pts, sides, ups, halfAt, null, null, wallL, wallR, { material: trackMaterial(track.name), startOverlap:false, endOverlap:false });
       }
 
       function addSameSpineU(track, i0, i1, opts) {
@@ -1703,8 +1631,7 @@ const bootTimer = setTimeout(() => {
         const sRef = opts.fromEnd ? track.sTab[i1] : track.sTab[i0];
         for (let i = i0; i <= i1; i++) {
           pts.push(track.pts[i]);
-          const lock = opts.lockEndFrame && i === i1;
-          const fr = opts.liftSteep && !lock ? sectionFrame(track, i) : { up: track.up[i], side: track.side[i] };
+          const fr = { up: track.up[i], side: track.side[i] };
           sides.push(fr.side);
           ups.push(fr.up);
           const ds = Math.abs(track.sTab[i] - sRef);
@@ -1720,7 +1647,7 @@ const bootTimer = setTimeout(() => {
           wallAt.push(wall);
           dropAt.push(opts.drop || 0);
         }
-        return addUChannel(pts, sides, ups, halfAt, wallAt, dropAt);
+        return addUChannel(pts, sides, ups, halfAt, wallAt, dropAt, null, null, {material:trackMaterial(track.name),startOverlap:false,endOverlap:false});
       }
 
       function addSleeve(joint, y0, y1, rIn, rOut) {
@@ -1819,7 +1746,8 @@ const bootTimer = setTimeout(() => {
         geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
         geo.setIndex(indices);
         geo.computeVertexNormals();
-        const mesh = new THREE.Mesh(geo, wood);
+        const mesh = new THREE.Mesh(geo, trackMaterial(track.name));
+        mesh.name = "tube/" + track.name;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         scene.add(mesh);
@@ -1827,14 +1755,13 @@ const bootTimer = setTimeout(() => {
       }
 
       addTrackU(tracks[0], 0, tracks[0].total, false);
-      const inletSweep = addSameSpineU(inletTrack, 0, N - 1, {
-        drop: R,
-        liftSteep: true,
-        fromEnd: true,
-        flareLen: 0.42,
-        flareHalf: 1.08 * R,
-        flareWall: 2 * R,
-      });
+      // A gravity collector matches the existing circular aperture. The old
+      // swept U-guide folded on a bend much tighter than the ball radius.
+      const collectorTop=discBottom+.076,collectorBottom=discBottom-.04;
+      const collectorMouth=.35,collectorBore=1.2*R,collectorWall=.15*R;
+      const collectorProfile=[[collectorMouth,collectorTop],[collectorBore,collectorBottom],[collectorBore+collectorWall,collectorBottom],[collectorMouth+collectorWall,collectorTop],[collectorMouth,collectorTop]];
+      const collector=new THREE.Mesh(new THREE.LatheGeometry(collectorProfile.map(([r,y])=>new THREE.Vector2(r,y)),96),trackMaterials.inlet);
+      collector.position.set(pipeAxisX,0,pipeAxisZ);collector.name='tube/inlet-collector';collector.castShadow=true;collector.receiveShadow=true;scene.add(collector);
       let iU = 2;
       for (let i = 0; i < N; i++) {
         if (tracks[1].up[i].y > 0.7 && tracks[1].sTab[i] > 0.12) {
@@ -1847,17 +1774,8 @@ const bootTimer = setTimeout(() => {
         lockEndFrame: true,
       });
       const mouthSweep = addMouthTube(tracks[1], Math.min(N - 1, iU + 8));
-      addSleeve(J_PIPE_TOP, J_PIPE_TOP.y - 0.12, J_PIPE_TOP.y + 0.02, 1.08 * R, 1.62 * R);
-      function sweepGap(name, sweep, track) {
-        if (!sweep || sweep.start !== track.pts[0] || sweep.end !== track.pts[track.pts.length - 1]) {
-          throw new Error(name + " 木头没有沿同一条曲线扫掠");
-        }
-        const ds = gapOf(sweep.start, track.pts[0]);
-        const de = gapOf(sweep.end, track.pts[track.pts.length - 1]);
-        if (!(ds < 0.01 * R && de < 0.01 * R)) throw new Error(name + " 几何端点与曲线端点 " + ds.toFixed(5) + " " + de.toFixed(5));
-        return { ds, de };
-      }
-      const geoInlet = sweepGap("入孔", inletSweep, inletTrack);
+      addSleeve(J_PIPE_TOP, J_PIPE_TOP.y - 0.12, J_PIPE_TOP.y + 0.02, 1.5 * R, 1.7 * R);
+      const geoInlet={kind:'gravity-collector',mouthRadius:collectorMouth,boreRadius:collectorBore,top:collectorTop,bottom:collectorBottom,pipeOverlap:discBottom-collectorBottom};
       if (!mouthSweep || mouthSweep.start !== tracks[1].pts[0] || chuteSweep.end !== tracks[1].pts[N - 1] || chuteSweep.start !== tracks[1].pts[iU]) {
         throw new Error("接应斜槽木头没有沿同一条曲线");
       }
@@ -1903,6 +1821,8 @@ const bootTimer = setTimeout(() => {
         ["接应斜槽→S弯", tracks[1].pts[N - 1], tracks[2].pts[0]],
         ["S弯→下坡", tracks[2].pts[tracks[2].pts.length - 1], tracks[3].pts[0]],
         ["下坡→回收槽", tracks[3].pts[N - 1], tracks[4].pts[0]],
+        ["道岔→回应轨道",ballCenter(tracks[3],splitS),responseTrack.pts[0]],
+        ["回应轨道→汇流",responseTrack.pts[N-1],ballCenter(tracks[3],joinS)],
       ].map(([name, a, b]) => {
         const d = gapOf(a, b);
         return { name, d: Math.round(d * 1e6) / 1e6, ok: d < 0.03 * R };
@@ -1972,7 +1892,8 @@ const bootTimer = setTimeout(() => {
         pipeGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
         pipeGeo.setIndex(indices);
         pipeGeo.computeVertexNormals();
-        const pipe = new THREE.Mesh(pipeGeo, wood);
+        const pipe = new THREE.Mesh(pipeGeo, trackMaterials.inlet);
+        pipe.name='tube/drop-pipe';
         pipe.castShadow = true;
         pipe.receiveShadow = true;
         scene.add(pipe);
@@ -1981,12 +1902,11 @@ const bootTimer = setTimeout(() => {
       {
         const lip = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.15 * R, 8, 48), woodDark);
         lip.rotation.x = Math.PI / 2;
-        lip.position.set(funnelC.x, H_funnel - 0.12 - 0.3 * R, funnelC.z);
+        lip.position.set(funnelC.x, discBottom + 0.036, funnelC.z);
         lip.castShadow = true;
         lip.receiveShadow = true;
         scene.add(lip);
         const outerR = 1.25 + 1.1 * R + 0.05;
-        const entryA = Math.atan2(-(funnelTrack.pts[0].z - funnelC.z), funnelTrack.pts[0].x - funnelC.x);
         const sproX = xS - funnelC.x;
         const sproY = -(zC - funnelC.z);
         const sproKeep = RS + 0.52;
@@ -2034,8 +1954,9 @@ const bootTimer = setTimeout(() => {
         trayShape.holes.push(trayHole);
         const trayGeo = new THREE.ExtrudeGeometry(trayShape, { depth: 0.08, bevelEnabled: false, curveSegments: 56 });
         trayGeo.rotateX(-Math.PI / 2);
-        const funnelTray = new THREE.Mesh(trayGeo, wood);
-        funnelTray.position.set(funnelC.x, H_funnel - 0.12 - 0.15 * R - 0.08, funnelC.z);
+        const funnelTray = new THREE.Mesh(trayGeo, trackMaterials.funnel);
+        funnelTray.name='channel/funnel-catch-base';
+        funnelTray.position.set(funnelC.x, discBottom, funnelC.z);
         funnelTray.receiveShadow = true;
         funnelTray.castShadow = true;
         scene.add(funnelTray);
@@ -2055,28 +1976,31 @@ const bootTimer = setTimeout(() => {
       takeBound(v3(x1, gearY, zGear), 0.9);
       takeBound(v3(x3, gearY, zGear), 0.9);
       takeBound(v3(xS, yTop + RS, zC), 0.6);
-      minX -= 0.85;
-      maxX += 0.7;
-      minZ -= 0.7;
-      maxZ += 0.55;
+      minX -= 0.42;
+      maxX += 0.38;
+      minZ -= 0.4;
+      maxZ += 0.32;
       const baseTop = 0.18;
-      const topY = Math.max(maxY, gearY + (Z3 * M) / 2 + M, yTop + RS) + 0.95;
+      const topY = Math.max(maxY, gearY + (Z3 * M) / 2 + M, yTop + RS) + 0.45;
       const sceneSpan = Math.hypot((maxX - minX) + 3.2, topY + 0.12, (maxZ - minZ) + 3.2);
       camera.near = 0.1;
       camera.far = sceneSpan * 10;
       camera.updateProjectionMatrix();
 
       const floor = new THREE.Mesh(
-        new THREE.BoxGeometry(maxX - minX + 3.2, 0.08, maxZ - minZ + 3.2),
-        new THREE.MeshStandardMaterial({ color: 0x121624, roughness: 0.96, metalness: 0 }),
+        new THREE.PlaneGeometry(200, 200),
+        new THREE.ShadowMaterial({ color: 0x283d48, opacity: 0.18 }),
       );
-      floor.position.set((minX + maxX) / 2, -0.04, (minZ + maxZ) / 2);
+      floor.rotation.x = -Math.PI/2;
+      floor.position.set((minX + maxX) / 2, -0.004, (minZ + maxZ) / 2);
       floor.receiveShadow = true;
       scene.add(floor);
 
+      const baseMaterial = wood.clone();
+      baseMaterial.color.setHex(0xdfcaad);
       const base = new THREE.Mesh(
         new THREE.BoxGeometry(maxX - minX, baseTop, maxZ - minZ),
-        wood,
+        baseMaterial,
       );
       base.position.set((minX + maxX) / 2, baseTop / 2, (minZ + maxZ) / 2);
       base.castShadow = true;
@@ -2091,12 +2015,12 @@ const bootTimer = setTimeout(() => {
       scene.add(trim);
 
       const postH = topY - baseTop;
-      const boardT = 0.12;
+      const boardT = 0.085;
       const cornerBoards = [
-        { x: minX, z: minZ, sx: 0.78, sz: boardT },
-        { x: maxX, z: minZ, sx: 0.78, sz: boardT },
-        { x: maxX, z: maxZ, sx: boardT, sz: 0.78 },
-        { x: minX, z: maxZ, sx: boardT, sz: 0.78 },
+        { x: minX, z: minZ, sx: 0.12, sz: boardT },
+        { x: maxX, z: minZ, sx: 0.12, sz: boardT },
+        { x: maxX, z: maxZ, sx: boardT, sz: 0.12 },
+        { x: minX, z: maxZ, sx: boardT, sz: 0.12 },
       ];
       for (const c of cornerBoards) {
         const post = new THREE.Mesh(new THREE.BoxGeometry(c.sx, postH, c.sz), wood);
@@ -2113,13 +2037,13 @@ const bootTimer = setTimeout(() => {
       }
       const beamY = topY;
       const beams = [
-        { w: maxX - minX, d: 0.1, x: (minX + maxX) / 2, z: minZ },
-        { w: maxX - minX, d: 0.1, x: (minX + maxX) / 2, z: maxZ },
-        { w: 0.1, d: maxZ - minZ, x: minX, z: (minZ + maxZ) / 2 },
-        { w: 0.1, d: maxZ - minZ, x: maxX, z: (minZ + maxZ) / 2 },
+        { w: maxX - minX, d: 0.065, x: (minX + maxX) / 2, z: minZ },
+        { w: maxX - minX, d: 0.065, x: (minX + maxX) / 2, z: maxZ },
+        { w: 0.065, d: maxZ - minZ, x: minX, z: (minZ + maxZ) / 2 },
+        { w: 0.065, d: maxZ - minZ, x: maxX, z: (minZ + maxZ) / 2 },
       ];
       for (const b of beams) {
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.1, b.d), wood);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.065, b.d), wood);
         mesh.position.set(b.x, beamY, b.z);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -2176,6 +2100,7 @@ const bootTimer = setTimeout(() => {
         for (let i = 0; i < 24; i++) {
           const frame = chainFrame((chainL * i) / 24);
           const bucket = add(frame.pos, scale(frame.outward, 0.18));
+          if(Math.abs(x-frame.pos.x)<.48&&(Math.abs(z-zC)<.48||Math.abs(z-bucketCycle.z)<.52)&&yOverlap(frame.pos.y-.90,frame.pos.y+.18))return true;
           if (near(frame.pos.x, frame.pos.z, 0.08) && yOverlap(frame.pos.y - 0.06, frame.pos.y + 0.06)) return true;
           if (near(bucket.x, bucket.z, 0.26) && yOverlap(bucket.y - 0.16, bucket.y + 0.16)) return true;
         }
@@ -2190,6 +2115,17 @@ const bootTimer = setTimeout(() => {
         }
         return false;
       }
+      function ribIntersectsPath(x,z,top,tx,tz) {
+        for (const path of [...tracks,inletTrack]) for(let i=0;i<path.pts.length;i+=2) {
+          const c=ballCenter(path,path.sTab[i]);const dx=c.x-x,dz=c.z-z;
+          const along=dx*tx+dz*tz,across=-dx*tz+dz*tx;
+          const a=Math.max(0,Math.abs(along)-0.066);
+          const b=Math.max(0,Math.abs(across)-0.176);
+          const y=Math.max(baseTop-c.y,c.y-top,0);
+          if(Math.hypot(a,b,y)<R+0.012)return true;
+        }
+        return false;
+      }
       function addTrackRib(tr, i, ox, oz) {
         const p = tr.pts[i];
         const u = tr.up[i];
@@ -2198,14 +2134,15 @@ const bootTimer = setTimeout(() => {
           : v3(p.x, p.y, p.z);
         const x = floor.x + (ox || 0);
         const z = floor.z + (oz || 0);
-        const top = floor.y - 0.05;
-        if (!(top > baseTop + 0.18)) return false;
+        const top = floor.y - (tr.name==="tray"?.03:.05);
+        if (!(top > baseTop + (tr.name==="tray"?.012:.18))) return false;
         if (columnBlocked(x, z, top)) return false;
         const h = top - baseTop;
         const tng = tr.tangent[i];
         const horiz = Math.hypot(tng.x, tng.z) || 1;
         const tx = tng.x / horiz;
         const tz = tng.z / horiz;
+        if(ribIntersectsPath(x,z,top,tx,tz))return false;
         const width = 0.34;
         const geo = new THREE.BoxGeometry(boardT, h, width);
         const mesh = new THREE.Mesh(geo, wood);
@@ -2233,7 +2170,7 @@ const bootTimer = setTimeout(() => {
         let got = 0;
         for (let k = 1; k <= 10 && got < 2; k++) {
           const idx = Math.round(((N - 1) * k) / 11);
-          for (const oz of [0, 0.38, -0.38]) {
+          for (const oz of [0, 0.38, -0.38, 0.58, -0.58, 0.78, -0.78]) {
             if (addTrackRib(tr, idx, 0, oz)) {
               got++;
               break;
@@ -2269,9 +2206,10 @@ const bootTimer = setTimeout(() => {
       g1.position.set(x1, gearY, zGear);
       g2.position.set(x2, gearY, zGear);
       g3.position.set(x3, gearY, zGear);
+      [g1,g2,g3].forEach((group,i)=>{const material=gearMat.clone();material.color.setHex([0xe6a7b7,0xefd58e,0x9dcbdc][i]);group.children[0].material=material;});
       scene.add(g1, g2, g3);
 
-      const pinMat = new THREE.MeshStandardMaterial({ color: 0xd3121f, roughness: 0.32, metalness: 0.04 });
+      const pinMat = new THREE.MeshStandardMaterial({ color: 0xe6a7b7, roughness: 0.32, metalness: 0.04 });
       const pinGeo = new THREE.CylinderGeometry(0.1, 0.1, GEAR_TH + 0.3, 20);
       for (const gear of [g1, g2, g3]) {
         const pin = new THREE.Mesh(pinGeo, pinMat);
@@ -2282,7 +2220,7 @@ const bootTimer = setTimeout(() => {
 
       const mS = (2 * RS) / ZS;
       const cheekT = 0.04;
-      const cheekZ = 0.36;
+      const cheekZ = 0.39;
       const sprocketGeo = gearGeometry(ZS, mS, cheekT);
       const sprockets = [];
       for (const y of [yTop, yBot]) {
@@ -2309,7 +2247,7 @@ const bootTimer = setTimeout(() => {
       scene.add(axle);
       const axle2 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.34, 14), darkMetal);
       axle2.rotation.x = Math.PI / 2;
-      axle2.position.set(x2, gearY, zGear);
+      axle2.position.set(0, 0, 0);
       g2.add(axle2);
       const axle1 = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.72, 14), darkMetal);
       axle1.rotation.x = Math.PI / 2;
@@ -2352,9 +2290,10 @@ const bootTimer = setTimeout(() => {
       const pillarSeam = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.014, boardT + 0.02), woodDark);
       pillarSeam.position.set(x1, baseTop + 0.007, zGear + 0.78);
       scene.add(pillarSeam);
-
-      const halfLinks = N_LINKS / 2;
-      const PLATE_LAT = 0.358;
+      const driveDetail=createDriveDetail({motor,body,plate,gears:[g1,g2,g3],axle,sprockets,x1,x3,y:gearY,zGear,zC,baseTop,metal:darkMetal,wood});
+      scene.add(driveDetail.group);
+      const driveTour=createDriveTour({reducedMotion:window.matchMedia('(prefers-reduced-motion: reduce)').matches});
+      const PLATE_LAT = 0.388;
       const outerPlateGeo = new THREE.BoxGeometry(0.016, pitch * 1.46, 0.05);
       const innerPlateGeo = new THREE.BoxGeometry(0.012, pitch * 1.32, 0.044);
       const pinGeoChain = new THREE.CylinderGeometry(0.013, 0.013, 0.05, 8);
@@ -2365,6 +2304,7 @@ const bootTimer = setTimeout(() => {
       const chainRollers = new THREE.InstancedMesh(rollerGeo, darkMetal, N_LINKS * 2);
       outerLinks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       innerLinks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      chainPins.name='chain/pins';
       chainPins.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       chainRollers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       scene.add(outerLinks, innerLinks, chainPins, chainRollers);
@@ -2373,86 +2313,56 @@ const bootTimer = setTimeout(() => {
 
       const buckets = [];
       for (let i = 0; i < 6; i++) {
-        const group = new THREE.Group();
-        const floorM = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.016, 0.3), wood);
-        floorM.position.set(0, -0.05, 0.12);
-        floorM.rotation.x = 0.62;
-        const back = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.02), woodDark);
-        back.position.set(0, 0.06, -0.02);
-        const sideGeo = new THREE.BoxGeometry(0.02, 0.16, 0.28);
-        const left = new THREE.Mesh(sideGeo, wood);
-        left.position.set(-0.16, 0.0, 0.1);
-        left.rotation.x = 0.32;
-        const right = new THREE.Mesh(sideGeo, wood);
-        right.position.set(0.16, 0.0, 0.1);
-        right.rotation.x = 0.32;
-        const lip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.016, 0.018), wood);
-        lip.position.set(0, -0.12, 0.26);
-        group.add(floorM, back, left, right, lip);
-        scene.add(group);
-        buckets.push({ i, group, ball: null });
+        const carrier=createLiftCarrier({index:i,R,wood,metal:steel,cycle:bucketCycle});
+        scene.add(carrier.group);
+        buckets.push({i,group:carrier.group,carrier,ball:null});
       }
+      // Fixed paired cam rails. Followers are sampled from the same rigid cup poses.
+      const camMaterial=new THREE.MeshStandardMaterial({color:0xb99a52,metalness:.65,roughness:.36});
+      const railUp=new THREE.Vector3(1,0,0),railT=new THREE.Vector3(),railN=new THREE.Vector3();
+      const lowerStart=2*straight+arcLen;
+      const camSupports=new Map();
+      const camDefinitions=[
+        {name:'upper-tip',start:straight+arcLen,end:pourS+1.05,key:'tipFollower',radius:.012},
+        {name:'upper-door',start:straight+arcLen,end:pourS+1.05,key:'doorFollower',radius:.010},
+        {name:'lower-open',start:lowerStart-.35,end:lowerStart-.02,key:'doorFollower',radius:.010},
+        {name:'lower-close',start:0,end:.25,key:'doorFollower',radius:.010},
+      ];
+      for(const cam of camDefinitions){
+        const points=Array.from({length:180},(_,i)=>{
+          const frame=chainFrame(cam.start+(cam.end-cam.start)*i/179);buckets[0].carrier.sync(frame);
+          const p=buckets[0].carrier[cam.key].position;
+          return new THREE.Vector3(p.x+frame.pos.x,p.y+frame.pos.y,p.z+frame.pos.z);
+        });
+        const offset=cam.key==='tipFollower'?-.12:.04;
+        const panelX=points[0].x+offset;
+        const key=panelX.toFixed(3);let support=camSupports.get(key);
+        if(!support){support={x:panelX,top:baseTop};camSupports.set(key,support);}
+        const backing=points.map(p=>new THREE.Vector3(panelX,p.y,p.z));
+        const timber=new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(backing),180,.022,8,false),wood);timber.name='bucket-cam/'+cam.name+'/backing';scene.add(timber);
+        for(const index of [0,179]){const p=points[index];support.top=Math.max(support.top,p.y+.04);const arm=new THREE.Mesh(new THREE.BoxGeometry(.045,.04,2.8-p.z),wood);arm.name='bucket-cam/'+cam.name+'/arm';arm.position.set(panelX,p.y,(2.8+p.z)/2);scene.add(arm);}
+        for(const sign of [-1,1]){
+          const rail=points.map((p,i)=>{railT.subVectors(points[Math.min(points.length-1,i+1)],points[Math.max(0,i-1)]).normalize();railN.crossVectors(railT,railUp).normalize();return p.clone().addScaledVector(railN,sign*(cam.radius+.006+(sign===1?.0003:.003)));});
+          const object=new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rail),180,.006,8,false),camMaterial);
+          object.userData.camWorking=sign===1;object.userData.railPoints=rail;object.name='bucket-cam/'+cam.name;object.castShadow=true;scene.add(object);
+          if(sign===1)for(const i of [8,80,170]){const p=rail[i],length=p.x-panelX;const pin=new THREE.Mesh(new THREE.BoxGeometry(Math.abs(length),.006,.006),camMaterial);pin.name='bucket-cam/standoff';pin.position.set((p.x+panelX)/2,p.y,p.z);scene.add(pin);}
 
-      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.5, 0.1, 28), woodDark);
-      bowl.position.set(scoopSeat.x, Math.max(baseTop + 0.05, scoopSeat.y - R - 0.08), scoopSeat.z);
+        }
+      }
+      for(const [key,p] of camSupports){
+        const height=p.top-baseTop;
+        const post=new THREE.Mesh(new THREE.BoxGeometry(.05,height,.05),wood);post.name='bucket-cam/'+key+'/post';post.position.set(p.x,baseTop+height/2,2.8);scene.add(post);
+      }
+      const escapement=createBucketEscapement({position:supplyHead,wood,metal:steel,baseTop});scene.add(escapement.group);
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.5, 0.008, 28), woodDark);
+      bowl.position.set(scoopSeat.x, baseTop + 0.004, scoopSeat.z);
       bowl.receiveShadow = true;
       bowl.castShadow = true;
       scene.add(bowl);
-      const bowlRim = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.035, 8, 28), wood);
+      const bowlRim = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.006, 8, 28), wood);
       bowlRim.rotation.x = Math.PI / 2;
-      bowlRim.position.set(bowl.position.x, bowl.position.y + 0.05, bowl.position.z);
+      bowlRim.position.set(bowl.position.x, bowl.position.y + 0.006, bowl.position.z);
       scene.add(bowlRim);
-
-      {
-        const back = norm(v3(queueHead.x - queueTail.x, 0, queueHead.z - queueTail.z));
-        const up = v3(0, 1, 0);
-        const flank = v3(0, 0, 1);
-        const floorEnd = v3(queueTail.x, queueTail.y - R, queueTail.z);
-        const tall = 1.4 * R;
-        const thick = 0.15 * R;
-        function placeBoard(from, to) {
-          const mid = lerp(from, to, 0.5);
-          const dir = norm(sub(to, from));
-          const boardLen = Math.max(0.08, len(sub(to, from)));
-          const geo = new THREE.BoxGeometry(thick, tall, boardLen);
-          const mesh = new THREE.Mesh(geo, wood);
-          const yAxis = new THREE.Vector3(up.x, up.y, up.z);
-          const zAxis = new THREE.Vector3(dir.x, dir.y, dir.z);
-          const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
-          zAxis.crossVectors(xAxis, yAxis).normalize();
-          mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis));
-          mesh.position.set(mid.x, mid.y + tall * 0.5, mid.z);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          scene.add(mesh);
-        }
-        for (const sign of [-1, 1]) {
-          const near = add(floorEnd, scale(flank, sign * 0.28));
-          const far = add(add(floorEnd, scale(back, 0.52)), scale(flank, sign * 0.48));
-          placeBoard(far, near);
-        }
-        const hopClear = 0.22 * R;
-        const hopTop = floorEnd.y - hopClear;
-        const hopper = new THREE.Group();
-        const yAxis = new THREE.Vector3(0, 1, 0);
-        const zAxis = new THREE.Vector3(back.x, 0, back.z).normalize();
-        const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
-        hopper.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis));
-        hopper.position.set(floorEnd.x + back.x * 0.85, hopTop + 0.02, floorEnd.z + back.z * 0.85);
-        function addHop(sx, sy, sz, lx, ly, lz, rx) {
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), wood);
-          mesh.position.set(lx, ly, lz);
-          if (rx) mesh.rotation.x = rx;
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          hopper.add(mesh);
-        }
-        addHop(0.34, 0.016, 0.26, 0, -0.08, 0.02, 0.55);
-        addHop(0.016, 0.09, 0.24, -0.16, -0.045, 0);
-        addHop(0.016, 0.09, 0.24, 0.16, -0.045, 0);
-        addHop(0.32, 0.09, 0.016, 0, -0.045, -0.11);
-        scene.add(hopper);
-      }
 
       {
         const flankZ = 0.46;
@@ -2460,7 +2370,7 @@ const bootTimer = setTimeout(() => {
         const y1g = yTop - RS - 0.12;
         const gh = y1g - y0g;
         for (const x of [xS - RS, xS + RS]) {
-          for (const z of [zC - flankZ, zC + flankZ]) {
+          for (const z of [zC - flankZ, zC + .30]) {
             const plate = new THREE.Mesh(new THREE.BoxGeometry(0.06, gh, 0.02), wood);
             plate.position.set(x, (y0g + y1g) / 2, z);
             plate.castShadow = true;
@@ -2475,18 +2385,20 @@ const bootTimer = setTimeout(() => {
       }
 
       const ballGeo = new THREE.SphereGeometry(R, 28, 20);
+      const conductorMaterial=steel.clone();conductorMaterial.color.setHex(0xc5a25b);conductorMaterial.roughness=0.25;
       const ballMeshes = [];
       for (let i = 0; i < 12; i++) {
-        const mesh = new THREE.Mesh(ballGeo, steel);
+        const mesh = new THREE.Mesh(ballGeo, i===0?conductorMaterial:steel);
         mesh.castShadow = true;
         mesh.visible = false;
         scene.add(mesh);
+        mesh.name = "ball/" + i;
         ballMeshes.push(mesh);
       }
 
-      const hemi = new THREE.HemisphereLight(0x6fb7ff, 0x120e0c, 0.16);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0xc6bbac, 0.7);
       scene.add(hemi);
-      const key = new THREE.DirectionalLight(0xfff1dc, 1.15);
+      const key = new THREE.DirectionalLight(0xfff1dc, 1.75);
       key.position.set(8, 11, 7);
       key.castShadow = true;
       key.shadow.mapSize.set(1024, 1024);
@@ -2496,14 +2408,16 @@ const bootTimer = setTimeout(() => {
       key.shadow.camera.bottom = -8;
       key.shadow.camera.far = 36;
       key.shadow.bias = -0.0004;
+      key.shadow.normalBias = 0.025;
+      key.shadow.radius = 3;
       scene.add(key);
-      const rim = new THREE.DirectionalLight(0x6fb7ff, 2.4);
+      const rim = new THREE.DirectionalLight(0xe2efff, 0.8);
       rim.position.set(-11, 6, -8);
       scene.add(rim);
-      const rimBack = new THREE.DirectionalLight(0x6fb7ff, 1.35);
+      const rimBack = new THREE.DirectionalLight(0xffffff, 0.4);
       rimBack.position.set(3, 3.5, -12);
       scene.add(rimBack);
-      const rimPoint = new THREE.PointLight(0x6fb7ff, 8, 14, 2);
+      const rimPoint = new THREE.PointLight(0xd6e6eb, 1.5, 14, 2);
       rimPoint.position.set(-2.4, 3.2, -3.2);
       scene.add(rimPoint);
       const glow = new THREE.PointLight(0xffe1b0, 0.18, 8);
@@ -2522,18 +2436,53 @@ const bootTimer = setTimeout(() => {
         else machineRoot.add(child);
       }
 
+      // Presentation only: the marker never changes the ball or drivetrain state.
+      const journeyRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.94, 1, 48),
+        new THREE.MeshBasicMaterial({color: 0x365d64, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false, toneMapped: false}),
+      );
+      journeyRing.name = "journey-marker";
+      journeyRing.renderOrder = 10;
+      journeyRing.frustumCulled = false;
+      scene.add(journeyRing);
+      let journeyStage = "";
+
+      function refreshJourney() {
+        const ball = balls[0];
+        if (!ball) { journeyRing.visible = false; return; }
+        journeyRing.visible = true;
+        journeyRing.position.copy(ballMeshes[0].position);
+        journeyRing.quaternion.copy(camera.quaternion);
+        const pixelSize = 2 * journeyRing.position.distanceTo(camera.position) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.max(1, renderer.domElement.clientHeight);
+        journeyRing.scale.setScalar(Math.max(R * 1.55, pixelSize * 9));
+        const stage = ball.mode === "carried" ? "lift" : ball.mode === "track" && (ball.track === 0 || ball.track === pourIndex) ? "spiral" : "return";
+        if (journeyStage !== stage) {
+          document.querySelectorAll("[data-stage]").forEach(el => {
+            if (el.dataset.stage === stage) el.setAttribute("aria-current", "step");
+            else el.removeAttribute("aria-current");
+          });
+          journeyStage = stage;
+        }
+        const current = document.getElementById("journey-current");
+        const label = {lift: "链条提升", spiral: "螺旋环槽", return: "波浪回流"}[stage];
+        if (current && current.textContent !== label) current.textContent = label;
+      }
+
       let phi1 = 0;
       let phi2 = Math.PI + Math.PI / Z2;
       let phi3 = Math.PI;
       let chainTravel = straight * 0.42;
       let pauseLeft = 0;
       let holdBucket = null;
+      let loading=null;
+      const motion=createMotionGovernor();
       let emptyRun = 0;
       let maxEmptyRun = 0;
-      let playing = true;
+      let playing = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       let speed = 1;
       let count = 8;
       const balls = [];
+      const show=createPerformance();
 
       const omega3 = () => OMEGA1 * (Z1 / Z3);
       const chainSpeed = () => Math.abs(omega3()) * RS;
@@ -2567,35 +2516,33 @@ const bootTimer = setTimeout(() => {
         ball.mode = "track";
         ball.track = pourIndex;
         ball.s = 0;
-        ball.v = 2.4;
+        ball.v = bucketCycle.releaseSpeed(motion.value());
+        bucket.tipReady=false;
         ball.bucket = -1;
         bucket.ball = null;
       }
 
       function tryRelease(i) {
-        if (!buckets[i].ball) return;
-        if (entranceBlocked()) {
-          pauseLeft = halfBeat();
-          holdBucket = i;
-          return;
-        }
-        doRelease(i);
+        if(buckets[i].ball&&buckets[i].tipReady)doRelease(i);
       }
 
       function tryPickup(i) {
+        if(show.gateClosed()||!curtain.clearForPickup())return;
         const bucket = buckets[i];
         if (bucket.ball) return;
         let lead = null;
         for (const b of balls) {
           if (b.mode !== "track" || b.track !== 4) continue;
-          if (tracks[4].total - b.s > R * 1.15) continue;
+          if (tracks[4].total - b.s > 0.005) continue;
           if (!lead || b.s > lead.s) lead = b;
         }
         if (!lead) return;
         lead.mode = "carried";
         lead.bucket = i;
         lead.v = 0;
-        bucket.ball = lead;
+        bucket.ball = lead;bucket.tipReady=false;
+        loading={bucket:i,ball:lead,elapsed:0,from:ballCenter(tracks[4],lead.s)};
+        motion.reset();
       }
 
       function crossed(prev, curr, mark) {
@@ -2604,7 +2551,33 @@ const bootTimer = setTimeout(() => {
         return mark > prev || mark <= curr;
       }
 
+      const carryAxis = new THREE.Vector3(1,0,0);
+      const carryRotation = new THREE.Quaternion();
       function advanceDrivetrain(dt) {
+        let stopDistance=Infinity,tip=1;
+        const loadWaiting=!show.gateClosed()&&curtain.clearForPickup()&&balls.some(b=>b.mode==='track'&&b.track===4&&tracks[4].total-b.s<=.005);
+        for(const bucket of buckets){
+          const s=bucketS(bucket.i);
+          // Continue the recovery envelope after unloading as the empty cup
+          // still follows the same fixed return cam.
+          let fromTip=mod(s-bucketCycle.preTipS,chainL);
+          if(fromTip>chainL-.28)fromTip-=chainL;
+          if(bucket.ball||fromTip<1.75)tip=Math.min(tip,tippingFactor(fromTip));
+          if(!bucket.ball&&loadWaiting||bucket.ball&&!bucket.tipReady&&entranceBlocked()){
+            const mark=bucket.ball?bucketCycle.preTipS:scoopS;
+            const gap=mod(mark-s,chainL);
+            if(gap>1e-7)stopDistance=Math.min(stopDistance,gap);
+          }
+        }
+        let distance=motion.step(dt,{base:chainSpeed(),performance:show.driveFactor(),loaded:buckets.filter(b=>b.ball).length,tip,stopDistance})*dt;
+        for(const bucket of buckets){
+          const mark=bucket.ball?(bucket.tipReady?pourS:bucketCycle.preTipS):scoopS;
+          const canLoad=!bucket.ball&&!show.gateClosed()&&curtain.clearForPickup()&&balls.some(b=>b.mode==='track'&&b.track===4&&tracks[4].total-b.s<=.005);
+          if(bucket.ball||canLoad){const gap=mod(mark-bucketS(bucket.i),chainL);if(gap>1e-7&&gap<distance)distance=gap;}
+        }
+        dt=distance/chainSpeed();
+        carryRotation.setFromAxisAngle(carryAxis,distance/R);
+        for (const ball of balls) if (ball.mode === "carried") ball.q.premultiply(carryRotation);
         const prev = buckets.map((b) => bucketS(b.i));
         phi1 += OMEGA1 * dt;
         phi2 += -OMEGA1 * (Z1 / Z2) * dt;
@@ -2612,7 +2585,7 @@ const bootTimer = setTimeout(() => {
         chainTravel = mod(chainTravel + chainSpeed() * dt, chainL);
         for (let i = 0; i < 6; i++) {
           const curr = bucketS(i);
-          if (crossed(prev[i], curr, scoopS)) {
+          if (crossed(prev[i], curr, scoopS)||Math.abs(curr-scoopS)<1e-7&&Math.abs(prev[i]-scoopS)>1e-7) {
             const had = !!buckets[i].ball;
             tryPickup(i);
             if (buckets[i].ball && !had) emptyRun = 0;
@@ -2621,11 +2594,20 @@ const bootTimer = setTimeout(() => {
               if (emptyRun > maxEmptyRun) maxEmptyRun = emptyRun;
             }
           }
-          if (crossed(prev[i], curr, pourS) && holdBucket == null) tryRelease(i);
+          if(buckets[i].ball&&!buckets[i].tipReady&&(crossed(prev[i],curr,bucketCycle.preTipS)||Math.abs(curr-bucketCycle.preTipS)<1e-7&&Math.abs(prev[i]-bucketCycle.preTipS)>1e-7)){
+            if(entranceBlocked()){pauseLeft=halfBeat();holdBucket=i;motion.reset();}else buckets[i].tipReady=true;
+          }
+          if ((crossed(prev[i], curr, pourS)||Math.abs(curr-pourS)<1e-7&&Math.abs(prev[i]-pourS)>1e-7) && holdBucket == null) tryRelease(i);
         }
       }
 
       function integrateBalls(dt) {
+        const routingStart=balls.map(b=>b.mode==='track'?{track:b.track,s:b.s}:null);
+        if(forkOwner&&!(forkOwner.mode==='track'&&((forkOwner.track===3&&forkOwner.s<splitS+.41)||(forkOwner.track===responseIndex&&forkOwner.s<.41))))forkOwner=null;
+        switchDrive.request(forkOwner?.routeChoice||routing.preview());
+        const switchOccupied=!!forkOwner&&((forkOwner.track===3&&forkOwner.s>splitS-.22)||(forkOwner.track===responseIndex));
+        switchDrive.tick(dt,{locked:switchOccupied});
+        retarders.main.beginStep();retarders.response.beginStep();
         for (const b of balls) {
           if (b.mode !== "pipe") continue;
           b.v += (G - 0.05 * b.v) * dt;
@@ -2646,7 +2628,7 @@ const bootTimer = setTimeout(() => {
               if (o.mode === "track" && o.track === 1 && o.s >= sPipeEnd) minS = Math.min(minS, o.s);
             }
             if (minS - sPipeEnd < GAP - 1e-4) {
-              b.pipeY = pipeSwitchY;
+              b.pipeY = pipeSwitchY + Math.max(0,GAP-(minS-sPipeEnd));
               b.v = 0;
               blocked = true;
             } else {
@@ -2678,7 +2660,8 @@ const bootTimer = setTimeout(() => {
           b.s += b.v * dt;
         }
         {
-          let limit = inletTrack.total;
+          const pipeLead = balls.filter(b=>b.mode === "pipe").reduce((gap,b)=>Math.min(gap,pipeEnterY-b.pipeY),Infinity);
+          let limit = inletTrack.total - Math.max(0,GAP-pipeLead);
           let limitV = 0;
           for (const b of inletList) {
             if (b.s > limit + 1e-6) {
@@ -2712,10 +2695,33 @@ const bootTimer = setTimeout(() => {
             b.v += (-G * dyds - muFor(tracks[b.track].name) * b.v) * dt;
             if (b.v < 0) b.v = 0;
             if (b.v > 2.6) b.v = 2.6;
+            const previousS=b.s;
             b.s += b.v * dt;
+            if(b.track===3&&b.routeChoice==null&&previousS<splitS&&b.s>=forkGate) {
+              if(forkOwner&&forkOwner!==b) {if(b.s>=splitS-.22){b.s=Math.max(previousS,splitS-.22);b.v=0;}}
+              else {b.routeChoice=routing.commit();forkOwner=b;}
+            }
+            if(b.track===3&&b.routeChoice!=null&&previousS<splitS&&b.s>=splitS-.22&&!switchDrive.ready(b.routeChoice)){b.s=Math.max(previousS,splitS-.22);b.v=0;}
+            if(b.track===3&&previousS<splitS){
+              const branchLead=balls.filter(o=>o.mode==='track'&&o.track===responseIndex&&o.s<GAP+.01).reduce((min,o)=>Math.min(min,o.s),Infinity);
+              if(Number.isFinite(branchLead)){
+                const limit=splitS-Math.max(0,GAP+.008-branchLead);
+                if(b.s>limit){b.s=Math.max(previousS,limit);b.v=Math.min(b.v,balls.find(o=>o.mode==='track'&&o.track===responseIndex&&o.s===branchLead)?.v||0);}
+              }
+            }
+            if(b.track===3&&b.routeChoice==='response'&&b.s>=splitS&&previousS<=splitS) {
+              if(canEnter(responseIndex)){b.track=responseIndex;b.s=0;}
+              else {b.s=splitS;b.v=0;}
+              continue;
+            }
+            const mergeGate=b.track===responseIndex?mergeResponseGate:mergeMainGate;
+            if((b.track===responseIndex||b.track===3&&previousS<joinS+0.4)&&b.s>=mergeGate&&b.mergeTicket==null)b.mergeTicket=++mergeSerial;
             const tr = tracks[b.track];
             if (b.s >= tr.total) {
+              // Resolve both approaches together before changing lane identity.
+              if(b.track===responseIndex)continue;
               if (b.track === 0) {
+                if(balls.some(o=>o!==b&&o.mode === "inlet"&&o.s<GAP)) {b.s=tr.total;b.v=0;continue;}
                 b.mode = "inlet";
                 b.s = 0;
                 b.v = Math.max(b.v, 0.12);
@@ -2724,6 +2730,7 @@ const bootTimer = setTimeout(() => {
               if (tr.next != null && canEnter(tr.next)) {
                 b.track = tr.next;
                 b.s = 0;
+                if(b.track===3)b.routeChoice=null;
               } else {
                 b.s = tr.total;
                 b.v = 0;
@@ -2731,11 +2738,39 @@ const bootTimer = setTimeout(() => {
             }
           }
         }
+        const mergeGap=GAP*1.15;
+        const arrivals=balls.flatMap((b,id)=>b.mode==='track'&&
+          (b.track===3&&(b.mergeTicket!=null||b.s>=joinS)||b.track===responseIndex&&b.mergeTicket!=null)
+          ?[{id,progress:b.track===3?b.s-joinS:b.s-responseTrack.total,
+            minimum:routingStart[id]?.track===b.track?routingStart[id].s-(b.track===3?joinS:responseTrack.total):-Infinity,
+            v:b.v,ticket:b.mergeTicket??null}]:[]);
+        for(const planned of mergeFlow(arrivals,mergeGap)) {
+          const b=balls[planned.id];
+          const lane=b.track===3?'main':'response';
+          const end=lane==='main'?joinS:responseTrack.total;
+          const braking=b.s>=end-1.25&&b.s<=end?retarders[lane].limit({id:planned.id,freeSpeed:b.v,targetSpeed:planned.v,dt}):{v:planned.v};
+          b.s=planned.progress+(b.track===3?joinS:responseTrack.total);b.v=braking.v;
+        }
+        for(const b of balls) {
+          if(b.mode!=='track')continue;
+          if(b.track===responseIndex&&b.s>=responseTrack.total){b.s=joinS+b.s-responseTrack.total;b.track=3;b.routeChoice='response';}
+          if(b.track===3&&b.s>joinS+mergeGap)delete b.mergeTicket;
+        }
         for (let ti = 0; ti < tracks.length; ti++) {
           const list = [];
           for (const b of balls) if (b.mode === "track" && b.track === ti) list.push(b);
           list.sort((a, b) => b.s - a.s);
-          let limit = tracks[ti].total;
+          const next = tracks[ti].next;
+          let downstream = Infinity;
+          for(const ball of balls) {
+            if(next != null && ball.mode === "track" && ball.track === next) {
+              if(ti!==responseIndex)downstream=Math.min(downstream,ball.s);
+              else if(ball.s>=joinS)downstream=Math.min(downstream,ball.s-joinS);
+            }
+            if(ti === 0 && ball.mode === "inlet") downstream=Math.min(downstream,ball.s);
+            if(ti === 4 && ball.mode === "carried"&&len(sub(positionOfBall(ball),scoopSeat))<.75) downstream=0;
+          }
+          let limit = tracks[ti].total - Math.max(0,GAP-downstream);
           let limitV = 0;
           for (const b of list) {
             if (b.s > limit + 1e-6) {
@@ -2746,33 +2781,60 @@ const bootTimer = setTimeout(() => {
             limitV = b.v;
           }
         }
+        balls.forEach((b,id)=>{
+          const prev=routingStart[id];
+          if(b.mode!=='track'||!prev||prev.track!==b.track)return;
+          const end=b.track===3?joinS:b.track===responseIndex?responseTrack.total:null;
+          if(end!=null&&b.s>=end-1.25&&b.s<=end)retarders[b.track===3?'main':'response'].contact({id,distance:Math.max(0,b.s-prev.s),dt});
+        });
         for (const b of balls) {
-          if ((b.mode !== "track" && b.mode !== "inlet") || b.v <= 0) continue;
+          if (b.mode !== "track" && b.mode !== "inlet") continue;
+          const distance=b.mode==='track'?(trackTravel(routingStart[balls.indexOf(b)],b,{lengths:routeLengths,splitS,joinS,responseIndex})??b.v*dt):b.v*dt;
+          if(distance<=0)continue;
           const tng = b.mode === "inlet" ? sample(inletTrack, b.s).tangent : sample(tracks[b.track], b.s).tangent;
           const axis = v3(-tng.z, 0, tng.x);
           const al = Math.hypot(axis.x, axis.z);
           if (al < 1e-5) continue;
           b.q.premultiply(new THREE.Quaternion().setFromAxisAngle(
             new THREE.Vector3(axis.x / al, 0, axis.z / al),
-            -(b.v / R) * dt,
+            -distance/R,
           ));
         }
       }
 
-      function step(dt) {
+      function step(dt,presentation=false) {
+        const soundBefore=presentation?{positions:buckets.map(b=>bucketS(b.i)),loading:loading?{bucket:loading.bucket,elapsed:loading.elapsed}:null}:null;
         integrateBalls(dt);
-        if (pauseLeft > 0) {
+        if(loading){
+          motion.reset();
+          loading.elapsed+=dt;
+          if(loading.elapsed>=1.1){show.pickup(balls.indexOf(loading.ball));loading=null;}
+        } else if (pauseLeft > 0) {
+          motion.reset();
           pauseLeft -= dt;
           if (pauseLeft <= 0 && holdBucket != null) {
             if (entranceBlocked()) pauseLeft = halfBeat();
             else {
-              doRelease(holdBucket);
+              buckets[holdBucket].tipReady=true;
               holdBucket = null;
             }
           }
-          return;
+        } else {
+          advanceDrivetrain(dt);
         }
-        advanceDrivetrain(dt);
+        const settled=balls.filter(b=>b.mode==='track'&&(b.track===3&&b.s>=joinS||b.track===4)&&b.v<0.05).length;
+        show.tick(dt,settled,balls.length);
+        for(const event of show.takeEvents()) {
+          if(event.type==='note'&&presentation){piano.play(event.index,true);if(event.index%2===1)responsePiano.play(Math.floor(event.index/2),true);}
+          if(event.type==='bell') {curtain.ring();if(presentation)chimes.bell();}
+        }
+        // Slide aside for a departing occupied bucket before closing behind it.
+        const occupiedNearGate=balls.some(b=>b.mode==='carried'&&len(sub(positionOfBall(b),scoopSeat))<0.9);
+        curtain.update(dt,show.gateClosed()&&!occupiedNearGate);
+        if(presentation){
+          const after={positions:buckets.map(b=>bucketS(b.i)),loading:loading?{bucket:loading.bucket,elapsed:loading.elapsed}:null};
+          for(const kind of mechanicalCues(soundBefore,after,bucketCycle))chimes.mechanical(kind);
+        }
       }
 
       function terminal(dyds, mu) {
@@ -2781,7 +2843,13 @@ const bootTimer = setTimeout(() => {
       }
 
       function spawn(n) {
-        for (const bucket of buckets) bucket.ball = null;
+        forkOwner=null;mergeSerial=0;routing.reset();switchDrive.reset(routing.preview());retarders.main.reset();retarders.response.reset();
+        show.reset();
+        curtain.reset();
+        chainTravel = straight*0.42; phi1=0;phi2=Math.PI+Math.PI/Z2;phi3=Math.PI;
+        pauseLeft=0;holdBucket=null;loading=null;
+        motion.reset();
+        for (const bucket of buckets){bucket.ball=null;bucket.tipReady=false;}
         balls.length = 0;
         const pushTrack = (track, frac) => {
           const s = tracks[track].total * frac;
@@ -2837,6 +2905,7 @@ const bootTimer = setTimeout(() => {
           const dropped = balls.pop();
           if (dropped && dropped.bucket >= 0) buckets[dropped.bucket].ball = null;
         }
+        for(const ball of balls)if(ball.mode==='track'&&ball.track===3&&ball.s>=splitS){ball.routeChoice='main';}
         for (let i = 0; i < ballMeshes.length; i++) ballMeshes[i].visible = i < balls.length;
         for (let ti = 0; ti < tracks.length; ti++) {
           const list = balls.filter((b) => b.mode === "track" && b.track === ti).sort((a, b) => b.s - a.s);
@@ -2861,6 +2930,8 @@ const bootTimer = setTimeout(() => {
       }
 
       function syncVisuals() {
+        driveDetail.sync({phi1,phi3});
+        trackSwitch.sync();retarderViews.forEach(view=>view.sync());
         g1.rotation.z = phi1;
         g2.rotation.z = phi2;
         g3.rotation.z = phi3;
@@ -2903,9 +2974,10 @@ const bootTimer = setTimeout(() => {
         innerLinks.instanceMatrix.needsUpdate = true;
         chainPins.instanceMatrix.needsUpdate = true;
         chainRollers.instanceMatrix.needsUpdate = true;
+        escapement.sync(loading?.elapsed);
         for (const bucket of buckets) {
           const frame = chainFrame(bucketS(bucket.i));
-          orientObject(bucket.group, frame.pos, frame.tangent, frame.outward);
+          bucket.carrier.sync(frame);
         }
         for (let i = 0; i < balls.length; i++) {
           const b = balls[i];
@@ -2916,11 +2988,8 @@ const bootTimer = setTimeout(() => {
           } else if (b.mode === "inlet") {
             pos = ballCenter(inletTrack, b.s);
           } else if (b.mode === "carried") {
-            pos = seatOf(chainFrame(bucketS(b.bucket)));
-            b.q.premultiply(new THREE.Quaternion().setFromAxisAngle(
-              new THREE.Vector3(1, 0, 0),
-              (chainSpeed() / R) * DT,
-            ));
+            pos = positionOfBall(b);
+
           } else {
             pos = ballCenter(tracks[b.track], b.s);
           }
@@ -2996,6 +3065,8 @@ const bootTimer = setTimeout(() => {
 
       const look = new THREE.Vector3();
       const controls = new OrbitControls(camera, renderer.domElement);
+      let renderDirty = true;
+      controls.addEventListener("change",()=>{renderDirty=true;});
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
       controls.maxPolarAngle = Math.PI / 2 - 0.06;
@@ -3009,8 +3080,9 @@ const bootTimer = setTimeout(() => {
       let viewLocked = true;
 
       function viewMetrics() {
-        const shell = canvasHost.closest(".machine-shell") || canvasHost.parentElement;
-        const rect = canvasHost.getBoundingClientRect();
+        const activeHost = document.getElementById("view") || canvasHost;
+        const shell = activeHost.closest(".machine-shell") || activeHost.parentElement;
+        const rect = activeHost.getBoundingClientRect();
         let width = rect.width;
         let height = rect.height;
         if (width < 2 || height < 2) {
@@ -3050,9 +3122,8 @@ const bootTimer = setTimeout(() => {
       }
 
       function frameObject(object3D, dirVector, distScale) {
-        object3D.updateWorldMatrix(true, true);
         _frameBox.makeEmpty();
-        expandFrameBox(object3D, _frameBox);
+        for(const object of Array.isArray(object3D)?object3D:[object3D]){object.updateWorldMatrix(true,true);expandFrameBox(object,_frameBox);}
         if (_frameBox.isEmpty()) {
           _frameCenter.set(0, 0, 0);
           _frameSize.set(1, 1, 1);
@@ -3060,9 +3131,17 @@ const bootTimer = setTimeout(() => {
           _frameBox.getCenter(_frameCenter);
           _frameBox.getSize(_frameSize);
         }
-        const diagonal = Math.max(_frameSize.length(), 1e-4);
         _frameDir.copy(dirVector).normalize();
-        const dist = diagonal * distScale;
+        const right = new THREE.Vector3().crossVectors(camera.up, _frameDir).normalize();
+        const up = new THREE.Vector3().crossVectors(_frameDir, right).normalize();
+        const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+        const tanX = tanY * Math.max(0.1, viewMetrics().aspect);
+        let dist = 0;
+        for (const x of [_frameBox.min.x,_frameBox.max.x]) for (const y of [_frameBox.min.y,_frameBox.max.y]) for (const z of [_frameBox.min.z,_frameBox.max.z]) {
+          const offset = new THREE.Vector3(x,y,z).sub(_frameCenter);
+          const depth = offset.dot(_frameDir);
+          dist = Math.max(dist, depth + Math.max(Math.abs(offset.dot(right))/tanX,Math.abs(offset.dot(up))/tanY)*distScale);
+        }
         return {
           target: _frameCenter.clone(),
           pos: _frameCenter.clone().addScaledVector(_frameDir, dist),
@@ -3070,9 +3149,14 @@ const bootTimer = setTimeout(() => {
       }
 
       function pose(name) {
+        if(name==='drive')return frameObject(driveDetail.targets[driveTour.state().step],new THREE.Vector3(...[[-.55,.4,1],[-.2,.12,-1],[-1,.25,.15],[-1,.25,.6]][driveTour.state().step]),1.4);
+        if(name==='duet')return frameObject(duetGroup,new THREE.Vector3(.15,1.3,-1.4),1.3);
+        if (name === 'curtain') return frameObject(curtain.group, new THREE.Vector3(-0.6, 0.85, 1.35), 1.65);
+        if (name === 'piano') return frameObject(piano.group, new THREE.Vector3(0.15, 1.3, -1.4), 1.25);
         if (name === "top") return frameObject(machineRoot, new THREE.Vector3(0.001, 1, 0.001), 1.25);
-        if (name === "gears") return frameObject(gearGroup, new THREE.Vector3(0.35, 0.25, 1), 2);
-        return frameObject(machineRoot, new THREE.Vector3(1, 0.65, 1), 1.15);
+        if (name === "gears") return frameObject(gearGroup, new THREE.Vector3(0.35, 0.25, 1), 1.25);
+        const mobile = viewMetrics().width < 600;
+        return frameObject(machineRoot, new THREE.Vector3(mobile ? 1.8 : 0.9, mobile ? 0.72 : 0.52, mobile ? 0.65 : 1), 1.015);
       }
 
       function releaseOrbit() {
@@ -3087,7 +3171,7 @@ const bootTimer = setTimeout(() => {
         controls.minDistance = Math.min(0.35, dist * 0.2);
         controls.maxDistance = Math.max(dist * 4, camera.far * 0.45);
         releaseOrbit();
-        if (snap) {
+        if (snap || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           camera.position.copy(next.pos);
           controls.target.copy(next.target);
           controls.enabled = true;
@@ -3100,6 +3184,7 @@ const bootTimer = setTimeout(() => {
             pos: next.pos.clone(),
             target: next.target.clone(),
             elapsed: 0,
+            duration: watching?1.15:0.8,
           };
           controls.enabled = false;
         }
@@ -3107,6 +3192,8 @@ const bootTimer = setTimeout(() => {
 
       let layoutTries = 0;
       function layout(snap) {
+        renderDirty = true;
+        if(driveTour.state().active)document.querySelector('.machine-shell').style.setProperty('--drive-panel-bottom',`${document.getElementById('drive-panel').getBoundingClientRect().bottom+12}px`);
         const { width, height, aspect } = viewMetrics();
         if (width < 2 || height < 2) {
           if (layoutTries < 40) {
@@ -3123,10 +3210,15 @@ const bootTimer = setTimeout(() => {
         renderer.domElement.style.width = "100%";
         renderer.domElement.style.height = "100%";
         camera.updateProjectionMatrix();
-        if (snap && viewLocked && !fly) applyPose(pose(viewName), true);
+        if(watching)directorShot='';
+        else if (snap && viewLocked && !fly) applyPose(pose(viewName), true);
       }
 
       function setView(name, snap = false) {
+        if(name!=='drive')closeDrive(false);
+        stopWatching(false);
+        following = false;
+        document.getElementById('btn-follow')?.setAttribute('aria-pressed', 'false');
         viewName = name;
         viewLocked = true;
         applyPose(pose(name), snap);
@@ -3135,18 +3227,199 @@ const bootTimer = setTimeout(() => {
         });
       }
       controls.addEventListener("start", () => {
+        driveTour.manual();refreshDrive();
+        stopWatching(false);
+        following = false;
+        document.getElementById('btn-follow')?.setAttribute('aria-pressed', 'false');
         fly = null;
         controls.enabled = true;
         viewLocked = false;
       });
+      // Capture before OrbitControls: even an in-flight camera move yields immediately.
+      const takeDriveControl=()=>{if(!driveTour.state().active)return;driveTour.manual();fly=null;controls.enabled=true;viewLocked=false;releaseOrbit();refreshDrive();};
+      renderer.domElement.addEventListener('pointerdown',takeDriveControl,{capture:true});
+      renderer.domElement.addEventListener('wheel',takeDriveControl,{capture:true,passive:true});
+      let following = false,watching=false,directorShot='',directorCurrent=null,savedView=null;
+      const reducedCameraMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
+      let driveRevealed=false,driveUiKey='';
+      const driveCopy=[
+        ['电机 · 动力从这里出发','铜色转子带动输入轴，黄铜联轴器把转动送给第一枚小齿轮。','输入端 / 12 齿'],
+        ['齿轮 · 转慢，才能提得稳','12 齿小轮经过 36 齿中间轮，带动 60 齿大轮；相邻齿轮反向，输出与输入同向。','12 → 36 → 60 齿 · 总减速 5 : 1'],
+        ['主轴 · 把转动送到链轮','大齿轮与顶部链轮连接在同一根轴上。黄铜轴承支承转轴，深色轴键随轴同步转动。','同轴传动 · 角速度 1 : 1'],
+        ['链条 · 把转动变成提升','顶部链轮牵引两侧链条，承托小斗把滚珠送上高处；装卸球时，整套传动会一起短暂停顿。','14 齿链轮 · 6 只承托小斗'],
+      ];
+      function refreshDrive(){
+        const state=driveTour.state(),key=JSON.stringify([state,driveRevealed,playing]);if(key===driveUiKey)return;driveUiKey=key;
+        document.getElementById('drive-panel').hidden=!state.active;
+        document.querySelector('.machine-shell').classList.toggle('inspecting-drive',state.active);
+        document.getElementById('btn-drive').setAttribute('aria-expanded',String(state.active));
+        document.querySelectorAll('[data-drive-step]').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.driveStep===state.step)));
+        const copy=driveCopy[state.step];['drive-title','drive-description','drive-metric'].forEach((id,i)=>document.getElementById(id).textContent=copy[i]);
+        for(const [id,value] of [['btn-drive-tour',state.auto],['btn-drive-slow',state.slow],['btn-drive-reveal',driveRevealed],['btn-drive-pause',!playing]])document.getElementById(id).setAttribute('aria-pressed',String(value));
+        document.getElementById('btn-drive-tour').textContent=state.auto?'停止参观':'沿动力参观';
+        document.getElementById('btn-drive-pause').textContent=playing?'暂停':'继续';
+        document.getElementById('btn-drive-tour').disabled=reducedCameraMotion.matches;
+        document.getElementById('drive-hint').textContent=reducedCameraMotion.matches?'已减少动态效果 · 点击上方切换特写':'拖动可自由观察 · 慢放为当前节奏的 ¼';
+        if(state.active)document.querySelector('.machine-shell').style.setProperty('--drive-panel-bottom',`${document.getElementById('drive-panel').getBoundingClientRect().bottom+12}px`);
+      }
+      function closeDrive(restore=true){
+        if(!driveTour.state().active)return;
+        driveTour.close();driveRevealed=false;driveDetail.reveal(false);refreshDrive();renderDirty=true;
+        if(restore)setView('wide');
+      }
+      function openDrive(step=0){
+        stopWatching(false);following=false;document.getElementById('btn-follow').setAttribute('aria-pressed','false');
+        for(const [panel,button] of [['piano-editor','btn-compose'],['routing-editor','btn-routing']]){document.getElementById(panel).hidden=true;document.getElementById(button).setAttribute('aria-expanded','false');document.getElementById(button).setAttribute('aria-pressed','false');}
+        driveTour.open(step);driveRevealed=true;driveDetail.reveal(true);refreshDrive();setView('drive');requestAnimationFrame(()=>layout(true));
+      }
+      const routeLengths=tracks.map(track=>track.total);
+      function stopWatching(restore=false) {
+        if(!watching)return;
+        watching=false;directorShot='';directorCurrent=null;
+        fly=null;controls.enabled=true;releaseOrbit();viewLocked=false;
+        const watchButton=document.getElementById('btn-watch');
+        if(watchButton){watchButton.setAttribute('aria-pressed','false');watchButton.querySelector('.watch-full').textContent='观看演出';watchButton.querySelector('.watch-short').textContent='观看';}
+        const caption=document.getElementById('director-caption');if(caption)caption.hidden=true;
+        if(restore&&savedView) {
+          viewName=savedView.name;viewLocked=savedView.locked;
+          applyPose(savedView,false);controls.enabled=true;
+          document.querySelectorAll('[data-view]').forEach(button=>button.setAttribute('aria-pressed',String(viewLocked&&button.dataset.view===viewName)));
+        }
+        savedView=null;renderDirty=true;
+      }
+      function travellerPose(id) {
+        const ball=ballMeshes[id]||ballMeshes[0];
+        const target=ball.position.clone();
+        const offset=new THREE.Vector3(1.15,0.65,1).normalize().multiplyScalar(camera.aspect<1?10:8);
+        return {target,pos:target.clone().add(offset)};
+      }
+      function updateDirector() {
+        if(!watching)return;
+        const manifest=arrivalManifest(balls,routeLengths,{responseIndex,joinS});
+        const shot=performanceShot(show.state(),manifest,reducedCameraMotion.matches);
+        if(!shot){stopWatching(true);return;}
+        const key=`${shot.kind}:${shot.ball??''}`;
+        if(key!==directorShot) {
+          directorShot=key;directorCurrent=shot;following=false;viewLocked=false;
+          document.getElementById('btn-follow')?.setAttribute('aria-pressed','false');
+          applyPose(shot.kind==='traveller'?travellerPose(shot.ball):pose(shot.kind==='piano'?'duet':shot.kind),false);
+          // Automatic transitions remain interruptible by an orbit gesture.
+          controls.enabled=true;
+          document.querySelectorAll('[data-view]').forEach(button=>button.setAttribute('aria-pressed','false'));
+        }else directorCurrent=shot;
+        const caption=document.getElementById('director-caption');
+        if(caption){caption.hidden=false;if(caption.textContent!==shot.label)caption.textContent=shot.label;}
+        if(fly&&shot.kind==='traveller') {
+          const next=travellerPose(shot.ball);fly.pos.copy(next.pos);fly.target.copy(next.target);
+        }
+      }
+      const chimes = createChimes();
+      const piano = createPianoBridge({track:tracks[3], centerAt:s=>ballCenter(tracks[3],s), sampleAt:s=>sample(tracks[3],s), wood, metal:steel, chimes});
+      machineRoot.add(piano.group);
+      const responsePiano=createPianoBridge({track:responseTrack,centerAt:s=>ballCenter(responseTrack,s),sampleAt:s=>sample(responseTrack,s),wood,metal:steel,chimes,response:true,trackId:responseIndex});
+      machineRoot.add(responsePiano.group);
+      const trackSwitch=createTrackSwitch({position:branchStart.pos,tangent:branchStart.tangent,wood,metal:steel,drive:switchDrive,sampleMain:s=>sample(tracks[3],splitS+s),sampleResponse:s=>sample(responseTrack,s),R});
+      const duetGroup=new THREE.Group();duetGroup.name='duet-machinery';machineRoot.add(duetGroup);duetGroup.add(piano.group,responsePiano.group,trackSwitch.group);
+      const retarderViews=[
+        createMergeRetarderView({name:'main',end:joinS,sampleAt:s=>sample(tracks[3],s),otherAt:s=>sample(responseTrack,responseTrack.total-(joinS-s)),model:retarders.main,wood,metal:steel,R}),
+        createMergeRetarderView({name:'response',end:responseTrack.total,sampleAt:s=>sample(responseTrack,s),otherAt:s=>sample(tracks[3],joinS-(responseTrack.total-s)),model:retarders.response,wood,metal:steel,R})
+      ];retarderViews.forEach(view=>duetGroup.add(view.group));
+      const curtain=createCurtainMechanism({position:ballCenter(tracks[4],tracks[4].total),tangent:sample(tracks[4],tracks[4].total).tangent,wood,metal:steel});
+      machineRoot.add(curtain.group);
+      const directorRing=new THREE.Mesh(new THREE.RingGeometry(R*1.5,R*1.62,40),new THREE.MeshBasicMaterial({color:0x365d64,depthTest:false,depthWrite:false,transparent:true,opacity:0.9,toneMapped:false}));
+      directorRing.name='director-marker';directorRing.visible=false;directorRing.renderOrder=11;scene.add(directorRing);
+      const pianoRay = new THREE.Raycaster();
+      const pianoPointer = new THREE.Vector2();
+      let pointerStart = null;
+      renderer.domElement.addEventListener('pointerdown', event => { pointerStart = {x:event.clientX,y:event.clientY}; });
+      renderer.domElement.addEventListener('pointercancel', () => { pointerStart = null; });
+      renderer.domElement.addEventListener('pointerup', event => {
+        if (!pointerStart || Math.hypot(event.clientX-pointerStart.x,event.clientY-pointerStart.y)>6) { pointerStart=null; return; }
+        pointerStart=null;
+        const box = renderer.domElement.getBoundingClientRect();
+        pianoPointer.set((event.clientX-box.left)/box.width*2-1, -(event.clientY-box.top)/box.height*2+1);
+        pianoRay.setFromCamera(pianoPointer,camera);
+        const hit = pianoRay.intersectObjects([...piano.pickable,...trackSwitch.pickable,...driveDetail.pickable])[0];
+        if (hit) {
+          if(hit.object.userData.driveStep!==undefined)openDrive(hit.object.userData.driveStep);
+          else if(hit.object.name==='switch/lever'){const modes=['main','response','alternate'];setRouteMode(modes[(modes.indexOf(routing.state().mode)+1)%3]);}
+          else piano.cycle(hit.object.userData.pianoIndex);
+          renderDirty=true;
+        }
+      });
+      const followTarget = new THREE.Vector3();
+      const followPosition = new THREE.Vector3();
+      const followOffset = new THREE.Vector3();
       spawn(8);
       syncVisuals();
       setView("wide", true);
       look.copy(controls.target);
       layout(true);
 
-      let statusText = "";
+      let statusText = "",performanceText='',arrivalText='';
+      function refreshArrival(state,active) {
+        const details=document.getElementById('arrival-details');if(!details)return;
+        details.hidden=!active;if(!active)return;
+        const manifest=arrivalManifest(balls,routeLengths,{responseIndex,joinS});
+        const departure=state.phase==='releasing'||state.phase==='encore';
+        const departed=new Set(state.departed);
+        const items=manifest.balls.map(ball=>({...ball,stage:departure?(departed.has(ball.id)?'已出发':'待出发'):ball.stage}));
+        const ratio=state.phase==='collecting'?manifest.progress:state.phase==='overture'?state.nextNote/6:state.phase==='encore'?1:state.released/count;
+        const percent=Math.round(ratio*100);
+        const summary=state.phase==='collecting'?manifest.summary:state.phase==='overture'?'按保存的旋律轮奏 · 空拍保留':departure?`已出发 ${state.released} · 待出发 ${count-state.released}`:'';
+        const key=`${state.phase}|${summary}|${percent}|${watching}|${directorShot}|${items.map(item=>item.stage).join(',')}`;
+        if(key===arrivalText)return;arrivalText=key;
+        const progress=document.getElementById('arrival-progress');
+        progress.setAttribute('aria-valuenow',String(percent));
+        progress.setAttribute('aria-label',state.phase==='collecting'?'滚珠归队进度':state.phase==='overture'?'琴桥轮奏进度':'滚珠出发进度');
+        progress.setAttribute('aria-valuetext',summary);progress.querySelector('i').style.width=percent+'%';
+        document.getElementById('arrival-summary').textContent=summary;
+        const dots=document.getElementById('arrival-dots');
+        if(dots.children.length!==count){dots.replaceChildren(...items.map(()=>{const dot=document.createElement('i');dot.setAttribute('role','listitem');return dot;}));}
+        items.forEach((item,id)=>{
+          const dot=dots.children[id],text=`${id===0?'黄铜指挥球':`${id+1} 号球`} · ${item.stage}`;
+          dot.dataset.state=item.stage;dot.dataset.gold=String(id===0);
+          dot.dataset.watched=String(watching&&directorCurrent?.kind==='traveller'&&directorCurrent.ball===id);
+          dot.title=text;dot.setAttribute('aria-label',text);
+        });
+      }
+      function setRouteMode(mode) {
+        routing.setMode(mode);
+        document.querySelectorAll('[data-route]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.route===mode)));
+        const feedback=document.getElementById('routing-feedback');if(feedback)feedback.textContent='已选择'+({main:'主旋律',response:'低音回应',alternate:'两路交替'}[mode])+' · 岔口中的球保持原路线';
+        refreshRouting();renderDirty=true;
+      }
+      function refreshRouting() {
+        const state=routing.state(),button=document.getElementById('btn-routing');
+        const text='道岔·'+({main:'主旋',response:'回应',alternate:'交替'}[state.mode]);
+        if(button&&button.textContent!==text)button.textContent=text;
+        const stats=document.getElementById('route-stats'),label=`主路 ${state.counts.main} 颗 · 回应 ${state.counts.response} 颗`;
+        if(stats&&stats.textContent!==label)stats.textContent=label;
+      }
+      function refreshPerformance() {
+        refreshRouting();
+        const state=show.state(),active=state.phase!=='cruising';
+        refreshArrival(state,active);
+        const lines={
+          cruising:`黄铜球完成 ${state.laps} / 2 圈后谢幕`,
+          collecting:`正在收球 ${state.gathered} / ${count} · 滚珠依次归队`,
+          overture:`小锤轮奏 ${Math.min(6,state.nextNote)} / 6 · 齿轮渐停`,
+          releasing:`闸门已开 ${state.released} / ${state.total} · 等待终止钟声`,
+          encore:'终止钟声响起 · 新一幕即将开始',
+        };
+        const text=(!playing&&active?'已暂停 · ':'')+lines[state.phase];
+        const key=`${state.phase}|${state.completed}|${text}`;
+        if(performanceText===key)return;
+        performanceText=key;
+        const card=document.getElementById('performance-card');
+        if(card)card.dataset.phase=state.phase;
+        const caption=document.getElementById('performance-caption');if(caption)caption.textContent=text;
+        const title=document.getElementById('performance-title');if(title)title.textContent=`黄铜指挥球 · 第 ${state.completed+1} 幕`;
+        const button=document.getElementById('btn-performance');
+        if(button){button.textContent=active?'继续循环':'演出一段';button.setAttribute('aria-pressed',String(active));}
+      }
       function refreshStatus() {
+        refreshPerformance();
         const status = document.getElementById("status");
         if (!status) return;
         const label = !playing ? "已暂停" : pauseLeft > 0 ? "入口占用，链条停半拍" : "运行中";
@@ -3156,10 +3429,78 @@ const bootTimer = setTimeout(() => {
         status.textContent = text;
       }
       refreshStatus();
+      const playButton = document.getElementById("btn-play");
+      if (playButton) { playButton.textContent = playing ? "暂停" : "继续"; playButton.setAttribute("aria-pressed",String(playing)); }
 
       window.__machineUi = (btn) => {
+        if(btn.id==='btn-drive'){if(driveTour.state().active)closeDrive();else openDrive();return;}
+        if(btn.id==='btn-drive-close'){closeDrive();document.getElementById('btn-drive').focus({preventScroll:true});return;}
+        if(btn.dataset.driveStep!==undefined){driveTour.select(+btn.dataset.driveStep);refreshDrive();setView('drive');return;}
+        if(btn.id==='btn-drive-tour'){driveTour.play(!driveTour.state().auto);refreshDrive();if(driveTour.state().auto)setView('drive');return;}
+        if(btn.id==='btn-drive-slow'){driveTour.slow(!driveTour.state().slow);refreshDrive();return;}
+        if(btn.id==='btn-drive-reveal'){driveRevealed=!driveRevealed;driveDetail.reveal(driveRevealed);refreshDrive();renderDirty=true;return;}
+        if(btn.id==='btn-drive-pause'){window.__machineUi(document.getElementById('btn-play'));refreshDrive();return;}
+        if(['btn-watch','btn-follow','btn-routing','btn-compose','btn-reset'].includes(btn.id))closeDrive(false);
+        if(btn.dataset.route){setRouteMode(btn.dataset.route);return;}
+        if(btn.id==='btn-routing'||btn.id==='btn-routing-close') {
+          const panel=document.getElementById('routing-editor'),open=btn.id==='btn-routing'&&panel.hidden;
+          panel.hidden=!open;document.getElementById('btn-routing').setAttribute('aria-expanded',String(open));
+          if(open){document.getElementById('piano-editor').hidden=true;document.getElementById('btn-compose').setAttribute('aria-expanded','false');document.getElementById('btn-compose').setAttribute('aria-pressed','false');setView('duet');}
+          else document.getElementById('btn-routing').focus({preventScroll:true});
+          return;
+        }
+        if(btn.id==='btn-watch') {
+          if(watching){stopWatching(false);return;}
+          savedView={pos:camera.position.clone(),target:controls.target.clone(),name:viewName,locked:viewLocked};
+          watching=true;directorShot='';following=false;releaseOrbit();
+          document.getElementById('btn-follow')?.setAttribute('aria-pressed','false');
+          btn.setAttribute('aria-pressed','true');
+          btn.querySelector('.watch-full').textContent='退出观看';btn.querySelector('.watch-short').textContent='退出';
+          if(show.state().phase==='cruising')show.start();
+          refreshPerformance();renderDirty=true;return;
+        }
+        if(btn.id==='btn-performance') {
+          if(show.state().phase==='cruising')show.start();else {show.cancel();stopWatching(true);}
+          refreshPerformance();renderDirty=true;return;
+        }
+        if (btn.id === 'btn-compose' || btn.id === 'btn-compose-close') {
+          const panel = document.getElementById('piano-editor');
+          const open = btn.id === 'btn-compose' && panel.hidden;
+          panel.hidden = !open;
+          document.getElementById('btn-compose').setAttribute('aria-expanded',String(open));
+          document.getElementById('btn-compose').setAttribute('aria-pressed',String(open));
+          if (open) {document.getElementById('routing-editor').hidden=true;document.getElementById('btn-routing').setAttribute('aria-expanded','false');setView('piano');}
+          else document.getElementById('btn-compose').focus({preventScroll:true});
+          return;
+        }
+        if (btn.dataset.pianoNote !== undefined) { piano.cycle(Number(btn.dataset.pianoNote)); renderDirty=true; return; }
+        if (btn.id === 'btn-score-reset') { piano.resetScore(); renderDirty=true; return; }
+        if (btn.id === 'btn-music') {
+          if (btn.disabled) return;
+          btn.disabled = true;
+          chimes.enable(!chimes.state().enabled).then(enabled => {
+            btn.setAttribute('aria-pressed', String(enabled));
+            btn.textContent = enabled ? '声音已开' : '开启声音';
+            chimes.active(playing && !document.hidden);
+          }).catch(() => { btn.textContent = '声音不可用'; }).finally(() => { btn.disabled = false; });
+          return;
+        }
+        if (btn.id === 'btn-follow') {
+          stopWatching(false);
+          if (following) { setView('wide'); return; }
+          following = true; fly = null; viewLocked = false; controls.enabled = true;
+          btn.setAttribute('aria-pressed', 'true');
+          document.querySelectorAll('[data-view]').forEach(el => el.setAttribute('aria-pressed', 'false'));
+          return;
+        }
+        if (btn.id === "btn-reset") {
+          piano.resetMotion();
+          responsePiano.resetMotion();
+          pauseLeft = 0; holdBucket = null; acc = 0; spawn(count); syncVisuals(); setView("wide"); refreshStatus(); return;
+        }
         if (btn.id === "btn-play") {
           playing = !playing;
+          chimes.active(playing && !document.hidden);
           btn.textContent = playing ? "暂停" : "继续";
           btn.setAttribute("aria-pressed", playing ? "true" : "false");
           refreshStatus();
@@ -3167,14 +3508,22 @@ const bootTimer = setTimeout(() => {
         }
         if (btn.dataset.speed) {
           speed = Number(btn.dataset.speed);
+          if (![0.5,1,2].includes(speed)) speed = 1;
           document.querySelectorAll("[data-speed]").forEach((el) => {
             el.setAttribute("aria-pressed", el === btn ? "true" : "false");
           });
           return;
         }
         if (btn.dataset.count) {
+          stopWatching(false);
+          piano.resetMotion();
+          responsePiano.resetMotion();
           count = Number(btn.dataset.count);
+          if (![4,8,12].includes(count)) count = 8;
+          pauseLeft = 0; holdBucket = null; acc = 0;
           spawn(count);
+          syncVisuals();
+          renderDirty = true;
           document.querySelectorAll("[data-count]").forEach((el) => {
             el.setAttribute("aria-pressed", el === btn ? "true" : "false");
           });
@@ -3187,8 +3536,17 @@ const bootTimer = setTimeout(() => {
         window.__uiClickBound = true;
         document.addEventListener("click", (event) => {
           const btn = event.target.closest("button");
-          if (!btn || !btn.closest("#hud")) return;
+          if (!btn || !btn.closest("#hud, #piano-editor, #performance-card, #routing-editor, #drive-panel")) return;
           window.__machineUi?.(btn);
+        });
+        document.addEventListener('keydown', event => {
+          if(event.key==='Escape'&&driveTour.state().active){window.__machineUi(document.getElementById('btn-drive-close'));return;}
+          if (event.key === 'Escape' && !document.getElementById('piano-editor')?.hidden) {
+            window.__machineUi?.(document.getElementById('btn-compose-close'));
+          }else if(event.key==='Escape'&&!document.getElementById('routing-editor')?.hidden){window.__machineUi?.(document.getElementById('btn-routing-close'));
+          }else if(event.key==='Escape'&&document.getElementById('btn-watch')?.getAttribute('aria-pressed')==='true') {
+            window.__machineUi?.(document.getElementById('btn-watch'));
+          }
         });
       }
 
@@ -3205,8 +3563,24 @@ const bootTimer = setTimeout(() => {
       let last = performance.now();
       let audit = null;
 
+      function positionOfBall(b) {
+        if(b.mode === "carried") {
+          const seat=seatOf(chainFrame(bucketS(b.bucket)));
+          if(loading&&loading.ball===b){const u=loadingProgress(loading.elapsed);return lerp(loading.from,seat,u);}
+          return seat;
+        }
+        if(b.mode === "pipe") return v3(pipeAxisX,b.pipeY,pipeAxisZ);
+        if(b.mode === "inlet") return ballCenter(inletTrack,b.s);
+        return ballCenter(tracks[b.track],b.s);
+      }
       function auditScan() {
         if (!audit) return;
+        const positions = balls.map(positionOfBall);
+        for(let i=0;i<positions.length;i++) for(let j=i+1;j<positions.length;j++) {
+          const gap=len(sub(positions[i],positions[j]))-2*R;
+          if(gap<audit.minBallGap){audit.minBallGap=gap;audit.worstPair={a:{...balls[i],q:undefined},b:{...balls[j],q:undefined},pa:positions[i],pb:positions[j]};}
+          if(gap < -0.001) audit.worldOverlaps++;
+        }
         const groups = new Map();
         for (const b of balls) {
           if (!Number.isFinite(b.s) || !Number.isFinite(b.v)) audit.nan++;
@@ -3222,24 +3596,49 @@ const bootTimer = setTimeout(() => {
       }
 
       function frame(now) {
+        if (document.hidden) { last = now; return; }
         try {
           const wall = Math.max(0, (now - last) / 1000);
           const raw = Math.min(0.05, wall);
           last = now;
-          if (playing) acc += raw * speed;
+          if (playing) acc += raw * speed * driveTour.state().timeScale;
           let guard = 0;
           while (acc >= DT && guard < 20) {
-            step(DT);
+            const previous = balls.map(b => ({mode:b.mode, track:b.track, s:b.s}));
+            step(DT,true);
+            piano.cross(previous,balls);
+            responsePiano.cross(previous,balls);
+            piano.update(DT,balls);
+            responsePiano.update(DT,balls);
             if (audit) auditScan();
             acc -= DT;
             guard++;
           }
           if (guard >= 20) acc = 0;
           refreshStatus();
-          syncVisuals();
-          if (fly) {
+          if(trackSwitch.sync())renderDirty=true;
+          if(playing) syncVisuals();
+          if (!playing){piano.update(0,balls);responsePiano.update(0,balls);}
+          updateDirector();
+          const driveStep=driveTour.state().step;driveTour.tick(raw,{playing});
+          if(driveTour.state().step!==driveStep)setView('drive');
+          refreshDrive();
+          if(watching&&directorCurrent?.kind==='traveller'&&!fly) {
+            const next=travellerPose(directorCurrent.ball),blend=1-Math.exp(-raw*3);
+            camera.position.lerp(next.pos,blend);controls.target.lerp(next.target,blend);camera.lookAt(controls.target);renderDirty=true;
+          }else if (following && ballMeshes[0]) {
+            followTarget.copy(ballMeshes[0].position);
+            followOffset.set(1.15, 0.65, 1).normalize().multiplyScalar(camera.aspect < 1 ? 10 : 8);
+            followPosition.copy(followTarget).add(followOffset);
+            const blend = 1 - Math.exp(-raw * 3);
+            camera.position.lerp(followPosition, blend);
+            controls.target.lerp(followTarget, blend);
+            camera.lookAt(controls.target);
+            renderDirty = true;
+          } else if (fly) {
             fly.elapsed += wall;
-            const k = Math.min(1, fly.elapsed / 0.8);
+            const t = Math.min(1, fly.elapsed / fly.duration);
+            const k=t*t*(3-2*t);
             camera.position.lerpVectors(fly.fromPos, fly.pos, k);
             controls.target.lerpVectors(fly.fromTarget, fly.target, k);
             if (k >= 1) {
@@ -3258,13 +3657,17 @@ const bootTimer = setTimeout(() => {
         }
         attachCanvas();
         try {
-          renderer.render(scene, camera);
+          directorRing.visible=watching&&directorCurrent?.kind==='traveller';
+          if(directorRing.visible){directorRing.position.copy(ballMeshes[directorCurrent.ball].position);directorRing.quaternion.copy(camera.quaternion);directorRing.material.color.setHex(directorCurrent.ball===0?0xb18a42:0x365d64);}
+          if(playing || fly || renderDirty) {refreshJourney();renderer.shadowMap.needsUpdate=shadowCadence.next({playing,dirty:renderDirty||!!fly});renderBatches.render(()=>renderer.render(scene, camera));renderDirty=false;}
           dismissLoading();
         } catch (err) {
           console.error(err);
         }
       }
+      const renderBatches=createRenderBatches(THREE,scene,{enabled:renderer.extensions.has('WEBGL_multi_draw')&&new URLSearchParams(location.search).get('renderBatches')!=='off'});
       renderer.setAnimationLoop(frame);
+      document.addEventListener("visibilitychange", () => { last = performance.now(); acc = 0; chimes.active(playing && !document.hidden); });
 
       layout(true);
       const resizeObserver = new ResizeObserver(() => layout(true));
@@ -3333,7 +3736,6 @@ const bootTimer = setTimeout(() => {
           { name: "g3", x: x3, z: Z3 },
         ];
         const sprocketR = RS + (2 * RS) / ZS;
-        const discR = 1.25 + 1.1 * R + 0.05;
         function gapDisc(p) {
           const cy = discBottom + 0.04;
           const dx = p.x - funnelC.x;
@@ -3615,6 +4017,15 @@ const bootTimer = setTimeout(() => {
 
       window.__machine = {
         ready: true,
+        clipping: clipReport,
+        mechanismPaths:()=>({main:Array.from({length:120},(_,i)=>ballCenter(tracks[3],splitS-.3+1.2*i/119)),response:Array.from({length:120},(_,i)=>ballCenter(responseTrack,1.2*i/119))}),
+        pathSamples: () => [...tracks,inletTrack].map(tr => ({name:tr.name,points:Array.from({length:300},(_,i)=>ballCenter(tr,tr.total*i/299))})),
+        channelSections:(all=false)=>(all?[...tracks,inletTrack]:[tracks[1],tracks[2]]).map(tr=>({name:tr.name,total:tr.total,sections:Array.from({length:401},(_,i)=>{const s=tr.total*i/400,f=sample(tr,s);return {s,center:ballCenter(tr,s),up:f.up,side:f.side,tangent:f.tangent};})})),
+        renderStats:()=>({calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,pixelRatio:renderer.getPixelRatio(),batching:renderBatches.stats()}),
+        buckets: buckets.map(b=>b.group),
+        carrierSeats:()=>buckets.map(b=>seatOf(chainFrame(bucketS(b.i)))),
+        camDefinitions,
+        bucketStates:()=>buckets.map(b=>({s:bucketS(b.i),loaded:!!b.ball,tipReady:!!b.tipReady,pose:bucketCycle.pose(bucketS(b.i))})),stationState:()=>({stopper:escapement.state(),waiting:holdBucket}),bucketCycle,loadingState:()=>loading?{bucket:loading.bucket,elapsed:loading.elapsed}:null,
         canvas: renderer.domElement,
         scene,
         R,
@@ -3652,6 +4063,7 @@ const bootTimer = setTimeout(() => {
           innerD: 2.3 * R,
           wall: 0.15 * R,
           clearance: pipeClearance,
+          collector:geoInlet,
         },
         gearMin12,
         gearMin23,
@@ -3661,7 +4073,10 @@ const bootTimer = setTimeout(() => {
         scoopSeat,
         winding,
         camera,
+        renderer,
         controls,
+        getExperience: () => ({...chimes.state(), following, drive:driveTour.state(), director:{enabled:watching,shot:directorCurrent},arrival:arrivalManifest(balls,routeLengths,{responseIndex,joinS}),piano:piano.state(),response:responsePiano.state(),routing:routing.state(),switch:trackSwitch.state(),mechanisms:{switch:switchDrive.state(),retarders:{main:retarderViews[0].state(),response:retarderViews[1].state()}}, performance:show.state(),curtain:curtain.state()}),
+        routeGeometry:{responseIndex,splitS,joinS,mainLength:joinS-splitS,responseLength:responseTrack.total},
         look: { x: look.x, y: look.y, z: look.z },
         gearFocus: (() => {
           const box = new THREE.Box3().setFromObject(gearGroup);
@@ -3679,9 +4094,9 @@ const bootTimer = setTimeout(() => {
           controls.update();
           renderer.render(scene, camera);
         },
-        getPhase: () => ({ phi1, phi2, phi3, chainTravel, pauseLeft, playing, speed, count }),
+        getPhase: () => ({ phi1, phi2, phi3, chainTravel, pauseLeft, playing, speed, count, driveVelocity:motion.value(),baseChainSpeed:chainSpeed() }),
         audit(seconds) {
-          audit = { overlaps: 0, nan: 0 };
+          audit = { overlaps: 0, nan: 0, worldOverlaps: 0, minBallGap: Infinity };
           emptyRun = 0;
           maxEmptyRun = 0;
           const n = Math.round(seconds / DT);
@@ -3694,9 +4109,14 @@ const bootTimer = setTimeout(() => {
           let maxQueueLate = 0;
           let queueSamples = 0;
           let queueSum = 0;
-          let over3 = 0;
+          let over3 = 0,routingRewinds=0,maxRoutingRewind=0,routingRewind=null;
           for (let i = 0; i < n; i++) {
+            const routingBefore=balls.map(b=>({mode:b.mode,track:b.track,s:b.s}));
             step(DT);
+            balls.forEach((b,id)=>{
+              const prev=routingBefore[id];
+              if(prev.mode==='track'&&b.mode==='track'&&prev.track===b.track&&(b.track===3||b.track===responseIndex)&&prev.s-b.s>1e-5){routingRewinds++;if(prev.s-b.s>maxRoutingRewind){maxRoutingRewind=prev.s-b.s;routingRewind={id,prev,after:{track:b.track,s:b.s,v:b.v,ticket:b.mergeTicket},others:balls.map(b=>({track:b.track,s:b.s,v:b.v,ticket:b.mergeTicket})),phase:show.state().phase};}}
+            });
             if (i % 8 === 0) auditScan();
             let waiting = 0;
             for (let bi = 0; bi < balls.length; bi++) {
@@ -3724,7 +4144,11 @@ const bootTimer = setTimeout(() => {
           const funnelAvg = funnelTimes.length ? funnelTimes.reduce((a, b) => a + b, 0) / funnelTimes.length : null;
           const out = {
             overlaps: audit.overlaps,
+            routingRewinds,maxRoutingRewind,routingRewind,
             nan: audit.nan,
+            worldOverlaps: audit.worldOverlaps,
+            minBallGap: audit.minBallGap,
+            worstPair: audit.worstPair,
             emptyRun: maxEmptyRun,
             maxQueue,
             maxQueueLate,
@@ -3742,4 +4166,6 @@ const bootTimer = setTimeout(() => {
       };
     }
 }
+
+
 

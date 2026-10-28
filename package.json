@@ -16,9 +16,11 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts",
+    "test": "node --test \"scripts/**/*.test.mjs\" && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "verify:machine": "node scripts/verify-machine.mjs && node scripts/verify-chute-support.mjs && npm run verify:support",
+    "verify:support": "node scripts/verify-route-support.mjs && node scripts/verify-inlet-containment.mjs && node scripts/verify-transfer-support.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
@@ -47,7 +49,7 @@
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/react-query": "^5.101.0",
     "@tanstack/react-router": "^1.170.0",
-    "@tanstack/react-start": "^1.168.0",
+    "@tanstack/react-start": "^1.169.4",
     "@tanstack/react-table": "^8.21.0",
     "@tanstack/router-plugin": "^1.168.0",
     "@vitejs/plugin-react": "^5.2.0",
@@ -62,6 +64,7 @@
     "lucide-react": "^0.510.0",
     "nitro": "3.0.260610-beta",
     "pg": "^8.16.3",
+    "polygon-clipping": "^0.15.7",
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.0",

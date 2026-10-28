@@ -27,10 +27,10 @@ if (args.error) {
 }
 
 const url = checkedUrl(args.url);
-const outPng = checkedOutputPath(args.outPng, ["/workspace"]);
+const outPng = checkedOutputPath(args.outPng, [process.cwd()]);
 const derived = derivedPaths(outPng);
-const mobilePng = checkedOutputPath(derived.mobilePng, ["/workspace"]);
-const outJson = checkedOutputPath(derived.verdictJson, ["/workspace"], "verdict JSON");
+const mobilePng = checkedOutputPath(derived.mobilePng, [process.cwd()]);
+const outJson = checkedOutputPath(derived.verdictJson, [process.cwd()], "verdict JSON");
 
 const MAX_BASELINE_BYTES = 1024 * 1024;
 const baselineRequested = Boolean(args.baseline);
@@ -38,7 +38,7 @@ let baselinePath = null;
 let baselineResolveError = null;
 if (baselineRequested) {
   try {
-    baselinePath = checkedOutputPath(realpathSync(args.baseline), ["/workspace"], "baseline");
+    baselinePath = checkedOutputPath(realpathSync(args.baseline), [process.cwd()], "baseline");
   } catch (err) {
     baselineResolveError = err?.code ?? "unresolvable path";
   }
@@ -92,12 +92,13 @@ let browser = null;
 try {
   browser = await chromium.launch({
     headless: true,
+    ...(process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}),
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
 
   const viewports = {};
   for (const vp of VIEWPORTS) {
-    const errors = { consoleErrors: [], pageErrors: [] };
+    const errors = { consoleErrors: [], pageErrors: [], requestFailures: [] };
     const page = await browser.newPage({
       viewport: { width: vp.width, height: vp.height },
     });
@@ -105,11 +106,22 @@ try {
       if (msg.type() === "error") errors.consoleErrors.push(msg.text());
     });
     page.on("pageerror", (err) => errors.pageErrors.push(String(err?.message || err)));
+    page.on("requestfailed", (request) => errors.requestFailures.push({url:request.url(), error:request.failure()?.errorText || "request failed"}));
     // `domcontentloaded`, not `networkidle`: Vite keeps an HMR websocket open, so
     // networkidle never settles and would burn the whole timeout.
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     const status = resp?.status() ?? 0;
+    if ((await page.locator("#view").count()) || (await page.title()) === "电动木质滚珠机") {
+      // The streamed/hydrated shell may arrive after DOMContentLoaded.
+      // Waiting only when #view already exists can accept the loading card.
+      await page.waitForFunction(() => window.__machine?.ready && document.documentElement.classList.contains("is-ready") && document.querySelector("#view canvas")?.isConnected, undefined, {timeout: timeoutMs});
+    }
     await page.waitForTimeout(1000);
+    // Check again after the streamed application shell has mounted: both the
+    // title and #view can be absent at the first DOMContentLoaded observation.
+    if ((await page.locator("#view").count()) || (await page.title()) === "电动木质滚珠机") {
+      await page.waitForFunction(() => window.__machine?.ready && document.documentElement.classList.contains("is-ready") && document.querySelector("#view canvas")?.isConnected && getComputedStyle(document.getElementById("loading")).display === "none", undefined, {timeout: timeoutMs});
+    }
 
     const title = await page.title();
     const hasCanvas = (await page.locator("canvas").count()) > 0;
@@ -136,11 +148,12 @@ try {
       horizontalOverflow,
       consoleErrors: errors.consoleErrors,
       pageErrors: errors.pageErrors,
+      requestFailures: errors.requestFailures,
       screenshot: vp.screenshot,
     };
   }
 
-  const brandWarnings = computeBrandWarnings({ hasCanvas: viewports.desktop.hasCanvas });
+  const brandWarnings = computeBrandWarnings({ hasCanvas: viewports.desktop.hasCanvas, workspaceRoot: process.cwd() });
   // Only a dev server answers /__app-env, so smoking the built output reads as
   // indeterminate — report a divergence, never the absence of an observation.
   const authWarnings = authInvariantWarnings(
